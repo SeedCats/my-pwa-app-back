@@ -1,6 +1,6 @@
 const { MongoClient, ObjectId } = require('mongodb');
 
-process.env.MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/PWA';
+process.env.MONGODB_URI = process.env.MONGODB_URI ;
 
 let cachedClient = null;
 let cachedDb = null;
@@ -14,8 +14,7 @@ async function connectToDB() {
     try {
         console.log('🔄 Connecting to MongoDB...');
         
-        const client = await MongoClient.connect(process.env.MONGODB_URI);
-        
+        const client = await MongoClient.connect(MONGODB_URI);
         const db = client.db('PWA');
         
         // Cache the connection
@@ -31,4 +30,8 @@ async function connectToDB() {
     }
 }
 
-module.exports = { connectToDB, ObjectId};
+// Make sure to export the function
+module.exports = { 
+    connectToDB, 
+    ObjectId 
+};
