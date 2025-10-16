@@ -24,16 +24,12 @@ const generateToken = async (user) => {
 
     const db = await connectToDB();
     try {
-        console.log('Updating token for user:', user._id);
-        console.log('Generated token:', token);
-        
+
         // Save token to database
         const result = await db.collection("user").updateOne(
             { _id: new ObjectId(user._id) },
             { $set: { token: token } }
         );
-        
-        console.log('Token update result:', result);
         
         return token;
     } catch (err) {
