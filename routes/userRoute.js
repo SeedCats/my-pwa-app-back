@@ -335,7 +335,7 @@ router.put('/user/password', authenticate, async (req, res) => {
     }
 });
 
-// POST /api/login - Log in with token generation
+// POST /api/login - Log in with token generation and HttpOnly cookie
 router.post('/login', async (req, res) => {
     try {
         console.log('Login attempt:', req.body);
@@ -358,6 +358,14 @@ router.post('/login', async (req, res) => {
         // Generate token for the user
         const token = await generateToken({ _id: user._id, email: user.email, });
 
+        // Set HttpOnly cookie
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        });
+
         res.status(200).json({
             success: true,
             data: {
@@ -366,8 +374,7 @@ router.post('/login', async (req, res) => {
                     name: user.name,
                     email: user.email,
                     role: user.role || 'user'
-                },
-                token: token
+                }
             }
         });
 
@@ -383,12 +390,11 @@ router.post('/login', async (req, res) => {
 // POST /api/logout - Log out and remove token
 router.post('/logout', authenticate, async (req, res) => {
     try {
-        // Extract token from the authenticate middleware
-        // The token is already validated by authenticate middleware
-        const authHeader = req.headers.authorization;
-        const token = authHeader && authHeader.startsWith('Bearer ')
-            ? authHeader.split(' ')[1]
-            : null;
+        // Extract token from cookie or header
+        const token = req.cookies.token || 
+            (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')
+                ? req.headers.authorization.split(' ')[1]
+                : null);
 
         if (!token) {
             return res.status(400).json({
@@ -400,8 +406,15 @@ router.post('/logout', authenticate, async (req, res) => {
         console.log('Logging out user:', req.user.email);
         console.log('Removing token for user ID:', req.user._id);
 
-        // Remove token from database using the removeToken function from auth.js
+        // Remove token from database
         await removeToken(token);
+
+        // Clear the HttpOnly cookie
+        res.clearCookie('token', {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict'
+        });
 
         res.status(200).json({
             success: true,
@@ -413,6 +426,30 @@ router.post('/logout', authenticate, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error during logout',
+            error: error.message
+        });
+    }
+});
+
+// GET /api/user/me - Returns current user from cookie
+router.get('/user/me', authenticate, async (req, res) => {
+    try {
+        res.status(200).json({
+            success: true,
+            data: {
+                user: {
+                    id: req.user._id,
+                    name: req.user.name,
+                    email: req.user.email,
+                    role: req.user.role || 'user'
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Get user error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting user',
             error: error.message
         });
     }
