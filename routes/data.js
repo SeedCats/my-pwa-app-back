@@ -57,7 +57,7 @@ router.post('/bmi', authenticate, async (req, res) => {
             updatedAt: new Date()
         };
 
-        const result = await db.collection("data").insertOne(bmiRecord);
+        const result = await db.collection("bmiData").insertOne(bmiRecord);
 
         if (result.insertedId) {
             res.status(201).json({
@@ -91,7 +91,7 @@ router.get('/bmi', authenticate, async (req, res) => {
         const db = await connectToDB();
 
         // Get all BMI records for this user, sorted by date (newest first)
-        const records = await db.collection("data")
+        const records = await db.collection("bmiData")
             .find({ userId: new ObjectId(req.user._id) })
             .sort({ createdAt: -1 })
             .toArray();
@@ -131,7 +131,7 @@ router.get('/bmi/:id', authenticate, async (req, res) => {
         const db = await connectToDB();
 
         // Find record by ID and verify ownership
-        const record = await db.collection("data").findOne({
+        const record = await db.collection("bmiData").findOne({
             _id: new ObjectId(id),
             userId: new ObjectId(req.user._id)
         });
@@ -184,7 +184,7 @@ router.put('/bmi/:id', authenticate, async (req, res) => {
         const db = await connectToDB();
 
         // Check if record exists and belongs to user
-        const existingRecord = await db.collection("data").findOne({
+        const existingRecord = await db.collection("bmiData").findOne({
             _id: new ObjectId(id),
             userId: new ObjectId(req.user._id)
         });
@@ -245,14 +245,14 @@ router.put('/bmi/:id', authenticate, async (req, res) => {
         }
 
         // Update record
-        const updateResult = await db.collection("data").updateOne(
+        const updateResult = await db.collection("bmiData").updateOne(
             { _id: new ObjectId(id) },
             { $set: updateData }
         );
 
         if (updateResult.modifiedCount === 1) {
             // Get updated record
-            const updatedRecord = await db.collection("data").findOne({
+            const updatedRecord = await db.collection("bmiData").findOne({
                 _id: new ObjectId(id)
             });
 
@@ -294,7 +294,7 @@ router.delete('/bmi/:id', authenticate, async (req, res) => {
         const db = await connectToDB();
 
         // Check if record exists and belongs to user
-        const existingRecord = await db.collection("data").findOne({
+        const existingRecord = await db.collection("bmiData").findOne({
             _id: new ObjectId(id),
             userId: new ObjectId(req.user._id)
         });
@@ -307,7 +307,7 @@ router.delete('/bmi/:id', authenticate, async (req, res) => {
         }
 
         // Delete record
-        const deleteResult = await db.collection("data").deleteOne({
+        const deleteResult = await db.collection("bmiData").deleteOne({
             _id: new ObjectId(id),
             userId: new ObjectId(req.user._id)
         });
@@ -340,7 +340,7 @@ router.delete('/bmi', authenticate, async (req, res) => {
         const db = await connectToDB();
 
         // Delete all records for this user
-        const deleteResult = await db.collection("data").deleteMany({
+        const deleteResult = await db.collection("bmiData").deleteMany({
             userId: new ObjectId(req.user._id)
         });
 
@@ -368,7 +368,7 @@ router.get('/bmi/stats', authenticate, async (req, res) => {
         const db = await connectToDB();
 
         // Get all records for statistics
-        const records = await db.collection("data")
+        const records = await db.collection("bmiData")
             .find({ userId: new ObjectId(req.user._id) })
             .sort({ createdAt: -1 })
             .toArray();

@@ -6,9 +6,12 @@ const { connectToDB } = require('./config/db.js');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Allowed origins
+const allowedOrigins = ['http://localhost:5173', 'http://localhost:4173'];
+
 // Only allows this origin to access the server
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:4173'],
+  origin: allowedOrigins,
   credentials: true
 }));
 
@@ -21,10 +24,12 @@ app.use(express.urlencoded({ extended: true }));
 // Import routes
 const userRoutes = require('./routes/userRoute.js');
 const dataRoutes = require('./routes/data.js');
+const aiRoutes = require('./routes/aiChat.js');
 
 // Routes - mount directly on /api, frontend will call /api/"endpoint" for user routes
 app.use('/api', userRoutes);
 app.use('/api/data', dataRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Initialize database connection and start server
 async function startServer() {

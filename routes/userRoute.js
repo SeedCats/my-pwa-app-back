@@ -340,7 +340,7 @@ router.post('/login', async (req, res) => {
     try {
         console.log('Login attempt:', req.body);
 
-        const { email, password } = req.body;
+        const { email, password, remember } = req.body;
         const db = await connectToDB();
 
         const user = await db.collection("user").findOne({
@@ -358,12 +358,17 @@ router.post('/login', async (req, res) => {
         // Generate token for the user
         const token = await generateToken({ _id: user._id, email: user.email, });
 
+        // Set cookie expiration based on "Remember Me"
+        const cookieMaxAge = remember
+            ? 7 * 24 * 60 * 60 * 1000  // 7 days if remember me
+            : 24 * 60 * 60 * 1000;       // 1 day otherwise
+
         // Set HttpOnly cookie
         res.cookie('token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production', // HTTPS only in production
-            sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: cookieMaxAge
         });
 
         res.status(200).json({
