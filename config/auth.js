@@ -66,8 +66,8 @@ const authenticate = async function (req, res, next) {
         });
     }
 
-    const db = await connectToDB();
     try {
+        const db = await connectToDB();
         const result = await db.collection("user").findOne({ token: token });
         if (!result) {
             return res.status(401).json({
@@ -83,6 +83,7 @@ const authenticate = async function (req, res, next) {
             req.user = result;
             next();
         } catch (jwtErr) {
+            console.error('JWT verification error:', jwtErr);
             // Token is invalid, remove it from database
             await removeTokenFromDB(token);
             return res.status(401).json({
@@ -92,6 +93,7 @@ const authenticate = async function (req, res, next) {
         }
         
     } catch (err) {
+        console.error('Authenticate error:', err);
         return res.status(500).json({ 
             success: false,
             message: err.message 
