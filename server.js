@@ -4,24 +4,24 @@ const cookieParser = require('cookie-parser');
 const { connectToDB } = require('./config/db.js');
 
 const app = express();
+
+// Configuration constants
 const PORT = process.env.PORT || 5000;
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'https://my-pwa-app-front.onrender.com'
+];
 
-// Allowed origins
-const allowedOrigins = ['http://localhost:5173', 'http://localhost:4173', 'https://my-pwa-app-front.onrender.com'];
-
-// Only allows this origin to access the server
+// CORS configuration
 app.use(cors({
-  origin: function (origin, callback) {
-    console.log('CORS request from origin:', origin);
-    // Allow requests with no origin (like mobile apps, curl, or same-origin)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, same-origin)
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
     }
+    console.log('CORS blocked origin:', origin);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
@@ -76,11 +76,27 @@ app.use('/api/grok', grokRoutes);
 // Initialize database connection and start server
 async function startServer() {
   try {
-    await connectToDB();
+    const db = await connectToDB();
     
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
     });
+
+    // Graceful shutdown
+    const shutdown = async (signal) => {
+      console.log(`\n${signal} received, closing server gracefully...`);
+      server.close(async () => {
+        console.log('HTTP server closed');
+        if (db?.client) {
+          await db.client.close();
+          console.log('MongoDB connection closed');
+        }
+        process.exit(0);
+      });
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
 
   } catch (error) {
     console.error('❌ Failed to start server:', error.message);

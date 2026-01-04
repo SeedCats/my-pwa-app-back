@@ -6,68 +6,98 @@ require('dotenv').config();
 
 const router = express.Router();
 
+// Configuration constants
+const DEFAULT_MODEL = 'grok-4-fast';
+const DEFAULT_OPTIONS = {
+  temperature: 1.0,
+  maxTokens: 3000,
+  topP: 1.0
+};
+
 const xai = createXai({
   apiKey: process.env.GROK_API_KEY
 });
 
+// Helper functions
+const parseMessages = (body) => {
+  if (body.messages && Array.isArray(body.messages)) {
+    return {
+      messages: body.messages,
+      currentMessage: body.messages[body.messages.length - 1]?.content || ''
+    };
+  }
+  
+  const { message, conversationHistory = [] } = body;
+  if (!message || typeof message !== 'string') {
+    throw new Error('Message is required and must be a string');
+  }
+  
+  return {
+    messages: [
+      ...conversationHistory.map(msg => ({ role: msg.role, content: msg.content })),
+      { role: 'user', content: message }
+    ],
+    currentMessage: message
+  };
+};
+
+const appendFileContent = (messages, file) => {
+  if (!file?.content) return;
+  
+  const fileContent = Buffer.from(file.content, 'base64').toString('utf-8');
+  messages[messages.length - 1].content += `\n\nFile: ${file.name}\n${fileContent}`;
+};
+
+const buildAiOptions = (messages, options) => {
+  const aiOptions = {
+    model: xai.responses(process.env.GROK_MODEL || DEFAULT_MODEL),
+    messages,
+    temperature: options.temperature || DEFAULT_OPTIONS.temperature,
+    maxTokens: options.maxTokens || DEFAULT_OPTIONS.maxTokens,
+    topP: options.topP || DEFAULT_OPTIONS.topP
+  };
+
+  // Enable search tools if sources requested
+  if (options.maxSources > 0) {
+    aiOptions.tools = {
+      web_search: xai.tools.webSearch(),
+      x_search: xai.tools.xSearch()
+    };
+  }
+
+  return aiOptions;
+};
+
+const getErrorResponse = (error) => {
+  if (error.message?.includes('API key')) {
+    return { statusCode: 401, message: 'Invalid or missing API key' };
+  }
+  if (error.message?.includes('rate limit')) {
+    return { statusCode: 429, message: 'Rate limit exceeded, please try again later' };
+  }
+  return { statusCode: 500, message: error.message || 'Failed to get AI response' };
+};
+
 router.post('/chat', authenticate, async (req, res) => {
   try {
     const { options = {}, file } = req.body;
-    let messages, currentMessage;
     
-    // Handle both message formats
-    if (req.body.messages && Array.isArray(req.body.messages)) {
-      messages = req.body.messages;
-      currentMessage = messages[messages.length - 1]?.content || '';
-    } else {
-      const { message, conversationHistory = [] } = req.body;
-      
-      if (!message || typeof message !== 'string') {
-        return res.status(400).json({
-          success: false,
-          message: 'Message is required and must be a string'
-        });
-      }
-      
-      currentMessage = message;
-      messages = [
-        ...conversationHistory.map(msg => ({ role: msg.role, content: msg.content })),
-        { role: 'user', content: message }
-      ];
-    }
-
+    // Parse and validate messages
+    const { messages, currentMessage } = parseMessages(req.body);
     console.log(`[Grok] ${req.user.email}: ${currentMessage.substring(0, 50)}...`);
 
     // Append file content if provided
-    if (file?.content) {
-      try {
-        const fileContent = Buffer.from(file.content, 'base64').toString('utf-8');
-        messages[messages.length - 1].content += `\n\nFile: ${file.name}\n${fileContent}`;
-      } catch (error) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid file content encoding'
-        });
-      }
+    try {
+      appendFileContent(messages, file);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid file content encoding'
+      });
     }
 
-    // Configure AI options with Responses API
-    const aiOptions = {
-      model: xai.responses(process.env.GROK_MODEL || 'grok-4-fast'),
-      messages: messages,
-      temperature: options.temperature || 1.0,
-      maxTokens: options.maxTokens || 3000,
-      topP: options.topP || 1.0
-    };
-
-    // Enable search tools if sources requested
-    if (options.maxSources > 0) {
-      aiOptions.tools = {
-        web_search: xai.tools.webSearch(),
-        x_search: xai.tools.xSearch()
-      };
-    }
-
+    // Build AI configuration
+    const aiOptions = buildAiOptions(messages, options);
     const wantsStream = (req.headers.accept || '').includes('text/event-stream');
 
     if (wantsStream) {
@@ -120,15 +150,7 @@ router.post('/chat', authenticate, async (req, res) => {
 
   } catch (error) {
     console.error('[Grok] Error:', req.user?.email, error.message);
-    
-    const statusCode = error.message?.includes('API key') ? 401
-      : error.message?.includes('rate limit') ? 429
-      : 500;
-    
-    const message = error.message?.includes('API key') ? 'Invalid or missing API key'
-      : error.message?.includes('rate limit') ? 'Rate limit exceeded, please try again later'
-      : error.message || 'Failed to get AI response';
-
+    const { statusCode, message } = getErrorResponse(error);
     res.status(statusCode).json({ success: false, message });
   }
 });

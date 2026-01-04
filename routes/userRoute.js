@@ -1,8 +1,20 @@
 const express = require('express');
-const { connectToDB } = require('../config/db.js');
+const { connectToDB, ObjectId } = require('../config/db.js');
 const { generateToken, authenticate, removeToken, revokeAllUserTokens } = require('../config/auth.js');
 
 const router = express.Router();
+
+// Validation constants
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 6;
+const COOKIE_MAX_AGE = {
+  REMEMBER: 7 * 24 * 60 * 60 * 1000,  // 7 days
+  DEFAULT: 24 * 60 * 60 * 1000         // 1 day
+};
+
+// Validation helpers
+const validateEmail = (email) => EMAIL_REGEX.test(email);
+const validatePassword = (password) => password && password.length >= MIN_PASSWORD_LENGTH;
 
 // POST /api/register - Register new user
 router.post('/user/register', async (req, res) => {
@@ -19,20 +31,19 @@ router.post('/user/register', async (req, res) => {
             });
         }
 
-        // Basic email validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
+        // Email validation
+        if (!validateEmail(email)) {
             return res.status(400).json({
                 success: false,
                 message: 'Please provide a valid email address'
             });
         }
 
-        // Password length validation
-        if (password.length < 6) {
+        // Password validation
+        if (!validatePassword(password)) {
             return res.status(400).json({
                 success: false,
-                message: 'Password must be at least 6 characters long'
+                message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long`
             });
         }
 
@@ -107,7 +118,6 @@ router.delete('/user/delete', authenticate, async (req, res) => {
         }
 
         const db = await connectToDB();
-        const { ObjectId } = require('../config/db.js');
 
         // Verify user's password before deletion
         const user = await db.collection("user").findOne({
@@ -165,7 +175,6 @@ router.put('/user/profile', authenticate, async (req, res) => {
         }
 
         const db = await connectToDB();
-        const { ObjectId } = require('../config/db.js');
 
         // Prepare update object
         const updateData = {
@@ -185,8 +194,7 @@ router.put('/user/profile', authenticate, async (req, res) => {
 
         if (email) {
             // Email validation
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(email)) {
+            if (!validateEmail(email)) {
                 return res.status(400).json({
                     success: false,
                     message: 'Please provide a valid email address'
@@ -267,11 +275,11 @@ router.put('/user/password', authenticate, async (req, res) => {
             });
         }
 
-        // New password length validation
-        if (newPassword.length < 6) {
+        // New password validation
+        if (!validatePassword(newPassword)) {
             return res.status(400).json({
                 success: false,
-                message: 'New password must be at least 6 characters long'
+                message: `New password must be at least ${MIN_PASSWORD_LENGTH} characters long`
             });
         }
 
@@ -284,7 +292,6 @@ router.put('/user/password', authenticate, async (req, res) => {
         }
 
         const db = await connectToDB();
-        const { ObjectId } = require('../config/db.js');
 
         // Verify current password
         const user = await db.collection("user").findOne({
@@ -299,23 +306,32 @@ router.put('/user/password', authenticate, async (req, res) => {
             });
         }
 
-        // Update password
+        // Update password and clear token
         const updateResult = await db.collection("user").updateOne(
             { _id: new ObjectId(req.user._id) },
             { 
                 $set: { 
                     password: newPassword,
+                    token: "",  // Clear token to force re-login
                     updatedAt: new Date()
                 }
             }
         );
 
         if (updateResult.modifiedCount === 1) {
+            // Clear the HttpOnly cookie
+            res.clearCookie('token', {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'none'
+            });
+
             res.status(200).json({
                 success: true,
-                message: 'Password updated successfully',
+                message: 'Password updated successfully. Please login again.',
                 data: {
-                    updatedAt: new Date().toISOString()
+                    updatedAt: new Date().toISOString(),
+                    requiresLogin: true
                 }
             });
         } else {
@@ -358,17 +374,12 @@ router.post('/login', async (req, res) => {
         // Generate token for the user
         const token = await generateToken({ _id: user._id, email: user.email, });
 
-        // Set cookie expiration based on "Remember Me"
-        const cookieMaxAge = remember
-            ? 7 * 24 * 60 * 60 * 1000  // 7 days if remember me
-            : 24 * 60 * 60 * 1000;       // 1 day otherwise
-
-        // Set HttpOnly cookie
+        // Set HttpOnly cookie with appropriate expiration
         res.cookie('token', token, {
             httpOnly: true,
-            secure: true,  // ✅ Must be true for sameSite: 'none'
-            sameSite: 'none',  // ✅ Required for cross-origin cookies
-            maxAge: cookieMaxAge
+            secure: true,
+            sameSite: 'none',
+            maxAge: remember ? COOKIE_MAX_AGE.REMEMBER : COOKIE_MAX_AGE.DEFAULT
         });
 
         res.status(200).json({

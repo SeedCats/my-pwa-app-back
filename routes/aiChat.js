@@ -130,40 +130,36 @@ router.put('/chat/:id', authenticate, async (req, res) => {
             if (!Array.isArray(messages)) {
                 return res.status(400).json({ success: false, message: 'Messages must be an array' });
             }
+            
+            const lastMessage = messages.length ? messages[messages.length - 1] : null;
+            
             if (append) {
-                // append new messages and update lastMessage to the last appended item
+                // Append new messages
                 update.$push = { messages: { $each: messages } };
-                const last = messages.length ? messages[messages.length - 1] : null;
-                if (last) update.lastMessage = last;
+                if (lastMessage) update.lastMessage = lastMessage;
             } else {
-                // replace the messages array and set lastMessage accordingly
+                // Replace messages array
                 update.messages = messages;
-                update.lastMessage = messages.length ? messages[messages.length - 1] : null;
+                update.lastMessage = lastMessage;
             }
         }
 
-        // Apply update
-        if (update.$push) {
-            // merge updatedAt and title separately
-            const push = update.$push;
-            delete update.$push;
-            const result = await db.collection('aichats').updateOne(
-                { _id: new ObjectId(id) },
-                { $set: update, $push: push }
-            );
-            if (result.modifiedCount === 1) {
-                const updated = await db.collection('aichats').findOne({ _id: new ObjectId(id) });
-                return res.status(200).json({ success: true, data: updated });
-            }
-        } else {
-            const result = await db.collection('aichats').updateOne(
-                { _id: new ObjectId(id) },
-                { $set: update }
-            );
-            if (result.modifiedCount === 1) {
-                const updated = await db.collection('aichats').findOne({ _id: new ObjectId(id) });
-                return res.status(200).json({ success: true, data: updated });
-            }
+        // Build update query
+        const updateQuery = update.$push 
+            ? { $set: { ...update, $push: undefined }, $push: update.$push }
+            : { $set: update };
+        
+        // Remove undefined from updateQuery
+        if (updateQuery.$set.$push !== undefined) delete updateQuery.$set.$push;
+
+        const result = await db.collection('aichats').updateOne(
+            { _id: new ObjectId(id), userId: new ObjectId(req.user._id) },
+            updateQuery
+        );
+
+        if (result.modifiedCount === 1) {
+            const updated = await db.collection('aichats').findOne({ _id: new ObjectId(id) });
+            return res.status(200).json({ success: true, data: updated });
         }
 
         res.status(500).json({ success: false, message: 'Failed to update chat' });

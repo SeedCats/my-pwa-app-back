@@ -479,6 +479,11 @@ router.post('/heartrate/upload', authenticate, upload.single('file'), async (req
                         const hour = timeDate.getHours();
                         const bpm = parseInt(parsed.bpm);
 
+                        // Validate BPM is within reasonable range (20-220)
+                        if (isNaN(bpm) || bpm < 20 || bpm > 220) {
+                            continue; // Skip invalid readings
+                        }
+
                         // Initialize date structure if not exists
                         if (!dailyData[dateOnly]) {
                             dailyData[dateOnly] = {

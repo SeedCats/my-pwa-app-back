@@ -41,14 +41,12 @@ const generateToken = async (user) => {
 const extractToken = (req) => {
     // First, check for token in HttpOnly cookie
     if (req.cookies && req.cookies.token) {
-        console.log('Token found in cookie');
         return req.cookies.token;
     }
     
     // Fallback to Authorization header (for backwards compatibility)
     const authHeader = req.headers.authorization || req.headers.Authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
-        console.log('Token found in header');
         return authHeader.split(' ')[1];
     }
     
