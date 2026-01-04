@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Allowed origins
-const allowedOrigins = ['http://localhost:5173', 'http://localhost:4173', 'https://my-pwa-app-front.onrender.app'];
+const allowedOrigins = ['http://localhost:5173', 'http://localhost:4173', 'https://my-pwa-app-front.onrender.com'];
 
 // Only allows this origin to access the server
 app.use(cors({
@@ -46,6 +46,26 @@ const userRoutes = require('./routes/userRoute.js');
 const dataRoutes = require('./routes/data.js');
 const aiRoutes = require('./routes/aiChat.js');
 const grokRoutes = require('./routes/grokChat.js');
+
+// Root route - shows API is running
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Backend API is running',
+    endpoints: {
+      users: '/api',
+      data: '/api/data',
+      ai: '/api/ai',
+      grok: '/api/grok',
+      health: '/health'
+    }
+  });
+});
+
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'healthy' });
+});
 
 // Routes - mount directly on /api, frontend will call /api/"endpoint" for user routes
 app.use('/api', userRoutes);
