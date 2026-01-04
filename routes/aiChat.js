@@ -122,9 +122,12 @@ router.put('/chat/:id', authenticate, async (req, res) => {
 
         if (!chat) return res.status(404).json({ success: false, message: 'Chat not found' });
 
-        const update = { updatedAt: new Date() };
+        let updateQuery = {};
+        const setFields = { updatedAt: new Date() };
 
-        if (title) update.title = String(title);
+        if (title) {
+            setFields.title = String(title);
+        }
 
         if (messages !== undefined) {
             if (!Array.isArray(messages)) {
@@ -134,30 +137,27 @@ router.put('/chat/:id', authenticate, async (req, res) => {
             const lastMessage = messages.length ? messages[messages.length - 1] : null;
             
             if (append) {
-                // Append new messages
-                update.$push = { messages: { $each: messages } };
-                if (lastMessage) update.lastMessage = lastMessage;
+                // Append new messages and update lastMessage
+                updateQuery.$push = { messages: { $each: messages } };
+                if (lastMessage) {
+                    setFields.lastMessage = lastMessage;
+                }
             } else {
                 // Replace messages array
-                update.messages = messages;
-                update.lastMessage = lastMessage;
+                setFields.messages = messages;
+                setFields.lastMessage = lastMessage;
             }
         }
 
-        // Build update query
-        const updateQuery = update.$push 
-            ? { $set: { ...update, $push: undefined }, $push: update.$push }
-            : { $set: update };
-        
-        // Remove undefined from updateQuery
-        if (updateQuery.$set.$push !== undefined) delete updateQuery.$set.$push;
+        // Build the final update query
+        updateQuery.$set = setFields;
 
         const result = await db.collection('aichats').updateOne(
             { _id: new ObjectId(id), userId: new ObjectId(req.user._id) },
             updateQuery
         );
 
-        if (result.modifiedCount === 1) {
+        if (result.modifiedCount === 1 || result.matchedCount === 1) {
             const updated = await db.collection('aichats').findOne({ _id: new ObjectId(id) });
             return res.status(200).json({ success: true, data: updated });
         }

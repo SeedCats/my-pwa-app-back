@@ -2,6 +2,7 @@ const express = require('express');
 const { createXai } = require('@ai-sdk/xai');
 const { streamText, generateText } = require('ai');
 const { authenticate } = require('../config/auth.js');
+const { connectToDB, ObjectId } = require('../config/db.js');
 require('dotenv').config();
 
 const router = express.Router();
@@ -80,7 +81,7 @@ const getErrorResponse = (error) => {
 
 router.post('/chat', authenticate, async (req, res) => {
   try {
-    const { options = {}, file } = req.body;
+    const { options = {}, file, chatId, title } = req.body;
     
     // Parse and validate messages
     const { messages, currentMessage } = parseMessages(req.body);
@@ -121,6 +122,38 @@ router.post('/chat', authenticate, async (req, res) => {
           }
         }
 
+        // Save conversation to database
+        const assistantMessage = { role: 'assistant', content: fullText };
+        const updatedMessages = [...messages, assistantMessage];
+        
+        const db = await connectToDB();
+        if (chatId && ObjectId.isValid(chatId)) {
+          // Update existing conversation
+          await db.collection('grokchats').updateOne(
+            { _id: new ObjectId(chatId), userId: new ObjectId(req.user._id) },
+            { 
+              $set: { 
+                messages: updatedMessages,
+                lastMessage: assistantMessage,
+                updatedAt: new Date()
+              }
+            }
+          );
+        } else {
+          // Create new conversation
+          const newChat = {
+            userId: new ObjectId(req.user._id),
+            userEmail: req.user.email,
+            title: title || currentMessage.substring(0, 50) + '...',
+            messages: updatedMessages,
+            lastMessage: assistantMessage,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          const result = await db.collection('grokchats').insertOne(newChat);
+          res.write(`data: ${JSON.stringify({ type: 'chatId', chatId: result.insertedId })}\n\n`);
+        }
+
         res.write(`data: ${JSON.stringify({ type: 'done', message: fullText, sources })}\n\n`);
         console.log(`[Grok] Completed: ${fullText.length} chars, ${sources.length} sources`);
         res.end();
@@ -139,11 +172,46 @@ router.post('/chat', authenticate, async (req, res) => {
 
       console.log(`[Grok] Response: ${result.text.length} chars, ${sources.length} sources`);
 
+      // Save conversation to database
+      const assistantMessage = { role: 'assistant', content: result.text };
+      const updatedMessages = [...messages, assistantMessage];
+      
+      const db = await connectToDB();
+      let savedChatId = chatId;
+      
+      if (chatId && ObjectId.isValid(chatId)) {
+        // Update existing conversation
+        await db.collection('grokchats').updateOne(
+          { _id: new ObjectId(chatId), userId: new ObjectId(req.user._id) },
+          { 
+            $set: { 
+              messages: updatedMessages,
+              lastMessage: assistantMessage,
+              updatedAt: new Date()
+            }
+          }
+        );
+      } else {
+        // Create new conversation
+        const newChat = {
+          userId: new ObjectId(req.user._id),
+          userEmail: req.user.email,
+          title: title || currentMessage.substring(0, 50) + '...',
+          messages: updatedMessages,
+          lastMessage: assistantMessage,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        const insertResult = await db.collection('grokchats').insertOne(newChat);
+        savedChatId = insertResult.insertedId;
+      }
+
       res.json({
         success: true,
         data: {
           message: result.text,
-          sources: sources
+          sources: sources,
+          chatId: savedChatId
         }
       });
     }
@@ -152,6 +220,110 @@ router.post('/chat', authenticate, async (req, res) => {
     console.error('[Grok] Error:', req.user?.email, error.message);
     const { statusCode, message } = getErrorResponse(error);
     res.status(statusCode).json({ success: false, message });
+  }
+});
+
+// GET /api/grok/chat - List all Grok chat conversations
+router.get('/chat', authenticate, async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const db = await connectToDB();
+
+    const query = { userId: new ObjectId(req.user._id) };
+    const total = await db.collection('grokchats').countDocuments(query);
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const chats = await db.collection('grokchats')
+      .find(query, { projection: { messages: 0 } })
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        chats,
+        pagination: {
+          currentPage: parseInt(page),
+          perPage: parseInt(limit),
+          total
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[Grok] List error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/grok/chat/:id - Get single Grok chat with full message history
+router.get('/chat/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid chat id' });
+    }
+
+    const db = await connectToDB();
+    const chat = await db.collection('grokchats').findOne({
+      _id: new ObjectId(id),
+      userId: new ObjectId(req.user._id)
+    });
+
+    if (!chat) {
+      return res.status(404).json({ success: false, message: 'Chat not found' });
+    }
+
+    res.status(200).json({ success: true, data: chat });
+  } catch (error) {
+    console.error('[Grok] Fetch error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// DELETE /api/grok/chat/:id - Delete single Grok chat
+router.delete('/chat/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid chat id' });
+    }
+
+    const db = await connectToDB();
+    const result = await db.collection('grokchats').deleteOne({
+      _id: new ObjectId(id),
+      userId: new ObjectId(req.user._id)
+    });
+
+    if (result.deletedCount === 1) {
+      return res.status(200).json({ success: true, message: 'Chat deleted' });
+    }
+
+    res.status(404).json({ success: false, message: 'Chat not found' });
+  } catch (error) {
+    console.error('[Grok] Delete error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// DELETE /api/grok/chat - Delete all Grok chats for user
+router.delete('/chat', authenticate, async (req, res) => {
+  try {
+    const db = await connectToDB();
+    const result = await db.collection('grokchats').deleteMany({ 
+      userId: new ObjectId(req.user._id) 
+    });
+    
+    res.status(200).json({ 
+      success: true, 
+      data: { deletedCount: result.deletedCount } 
+    });
+  } catch (error) {
+    console.error('[Grok] Delete all error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
