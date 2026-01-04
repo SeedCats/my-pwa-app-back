@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Allowed origins
-const allowedOrigins = ['http://localhost:5173', 'http://localhost:4173'];
+const allowedOrigins = ['http://localhost:5173', 'http://localhost:4173', 'https://my-pwa-app-front.onrender.app'];
 
 // Only allows this origin to access the server
 app.use(cors({
