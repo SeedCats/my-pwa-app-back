@@ -15,7 +15,7 @@ const ALLOWED_ORIGINS = [
 ];
 
 // CORS configuration
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, same-origin)
     if (!origin || ALLOWED_ORIGINS.includes(origin)) {
@@ -24,8 +24,18 @@ app.use(cors({
     console.log('CORS blocked origin:', origin);
     callback(new Error('Not allowed by CORS'));
   },
-  credentials: true
-}));
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Set-Cookie'],
+  maxAge: 86400, // 24 hours
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
+// Ensure preflight OPTIONS requests get CORS headers
+app.options('*', cors(corsOptions));
 
 // Cookie parser middleware
 app.use(cookieParser());
