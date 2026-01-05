@@ -11,7 +11,7 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:4173',
   'https://my-pwa-app-front.onrender.com',
-  'https://my-pwa-app-front.vercel.app/'
+  'https://my-pwa-app-front.vercel.app'
 ];
 
 // CORS configuration
