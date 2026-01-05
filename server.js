@@ -34,8 +34,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// Ensure preflight OPTIONS requests get CORS headers
-app.options('*', cors(corsOptions));
 
 // Cookie parser middleware
 app.use(cookieParser());
