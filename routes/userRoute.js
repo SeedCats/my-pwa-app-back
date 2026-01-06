@@ -386,8 +386,20 @@ router.put('/user/password', authenticate, async (req, res) => {
 router.post('/login', async (req, res) => {
     try {
         console.log('Login attempt:', req.body);
+        console.log('Request origin:', req.headers.origin);
+        console.log('Request headers:', req.headers);
 
         const { email, password, remember } = req.body;
+
+        // Validation - check if email and password are provided
+        if (!email || !password) {
+            console.log('Login failed: Missing email or password');
+            return res.status(400).json({
+                success: false,
+                message: 'Email and password are required'
+            });
+        }
+
         const db = await connectToDB();
 
         const user = await db.collection("user").findOne({
@@ -396,6 +408,7 @@ router.post('/login', async (req, res) => {
         });
 
         if (!user) {
+            console.log('Login failed: User not found with provided credentials');
             return res.status(401).json({
                 success: false,
                 message: 'Login Failed, please check your credentials!'
