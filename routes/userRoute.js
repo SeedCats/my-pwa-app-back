@@ -72,6 +72,17 @@ router.post('/user/register', async (req, res) => {
         const result = await db.collection("user").insertOne(newUser);
 
         if (result.insertedId) {
+            // Generate token for the user after registration
+            const token = await generateToken({ _id: result.insertedId, email: email });
+
+            // Set HttpOnly cookie (same as login)
+            res.cookie('token', token, {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'none',
+                maxAge: COOKIE_MAX_AGE.DEFAULT
+            });
+
             res.status(201).json({
                 success: true,
                 message: 'User registered successfully',
@@ -81,8 +92,7 @@ router.post('/user/register', async (req, res) => {
                         name: name,
                         email: email,
                         role: 'user'
-                    },
-                    token: "" // No token on registration
+                    }
                 }
             });
         } else {
@@ -132,15 +142,36 @@ router.delete('/user/delete', authenticate, async (req, res) => {
             });
         }
 
-        // Delete the user account directly from database
-        const deleteResult = await db.collection("user").deleteOne({
-            _id: new ObjectId(req.user._id)
-        });
+        const userId = new ObjectId(req.user._id);
 
-        if (deleteResult.deletedCount === 1) {
+        // Delete all user-related data from all collections
+        const deletionResults = await Promise.all([
+            // Delete BMI data
+            db.collection("bmiData").deleteMany({ userId: userId }),
+            // Delete heart rate data
+            db.collection("heartrate_daily").deleteMany({ userId: userId }),
+            // Delete AI chat conversations
+            db.collection("aichats").deleteMany({ userId: userId }),
+            // Delete Grok chat conversations
+            db.collection("grokchats").deleteMany({ userId: userId }),
+            // Delete the user account
+            db.collection("user").deleteOne({ _id: userId })
+        ]);
+
+        const userDeleteResult = deletionResults[4]; // User deletion is the last operation
+
+        if (userDeleteResult.deletedCount === 1) {
+            console.log('Account and all related data deleted for user:', req.user.email);
+            console.log('Deletion summary:', {
+                bmiRecords: deletionResults[0].deletedCount,
+                heartRateRecords: deletionResults[1].deletedCount,
+                aiChats: deletionResults[2].deletedCount,
+                grokChats: deletionResults[3].deletedCount
+            });
+
             res.status(200).json({
                 success: true,
-                message: 'Account deleted successfully'
+                message: 'Account and all related data deleted successfully'
             });
         } else {
             res.status(500).json({

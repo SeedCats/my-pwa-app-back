@@ -10,7 +10,6 @@ const PORT = process.env.PORT || 5000;
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:4173',
-  'https://my-pwa-app-front.onrender.com',
   'https://my-pwa-app-front.vercel.app'
 ];
 
