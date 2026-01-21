@@ -100,7 +100,7 @@ const authenticate = async function (req, res, next) {
 }
 
 const checkRole = (roles) => {
-    return (req, res, next) => {
+    return async (req, res, next) => {
         if (!req.user) {
             return res.status(401).json({ 
                 success: false,
@@ -108,8 +108,22 @@ const checkRole = (roles) => {
             });
         }
         
-        // Set role based on email if not already set
-        const userRole = req.user.email === 'admin@admin.com' ? 'admin' : 'user';
+        // Determine user role: prefer stored role, else fallback to admin email check and default to 'user'
+        const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
+
+        // If role wasn't stored, persist it to DB for consistency
+        if (!req.user.role) {
+            try {
+                const db = await connectToDB();
+                await db.collection("user").updateOne(
+                    { _id: new ObjectId(req.user._id) },
+                    { $set: { role: userRole } }
+                );
+                req.user.role = userRole;
+            } catch (err) {
+                console.error('Error setting default role for user:', err);
+            }
+        }
         
         if (!roles.includes(userRole)) {
             return res.status(403).json({ 

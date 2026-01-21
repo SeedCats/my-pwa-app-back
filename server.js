@@ -58,6 +58,7 @@ const userRoutes = require('./routes/userRoute.js');
 const dataRoutes = require('./routes/data.js');
 const aiRoutes = require('./routes/aiChat.js');
 const grokRoutes = require('./routes/grokChat.js');
+const providerRoutes = require('./routes/emailSMTP.js');
 
 // Root route - shows API is running
 app.get('/', (req, res) => {
@@ -84,6 +85,7 @@ app.use('/api', userRoutes);
 app.use('/api/data', dataRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/grok', grokRoutes);
+app.use('/api/provider', providerRoutes);
 
 // Initialize database connection and start server
 async function startServer() {
@@ -111,7 +113,7 @@ async function startServer() {
     process.on('SIGINT', () => shutdown('SIGINT'));
 
   } catch (error) {
-    console.error('❌ Failed to start server:', error.message);
+    console.error('Failed to start server:', error.message);
     process.exit(1);
   }
 }

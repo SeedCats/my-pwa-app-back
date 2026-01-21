@@ -72,8 +72,8 @@ router.post('/user/register', async (req, res) => {
         const result = await db.collection("user").insertOne(newUser);
 
         if (result.insertedId) {
-            // Generate token for the user after registration
-            const token = await generateToken({ _id: result.insertedId, email: email });
+            // Generate token for the user after registration (include role)
+            const token = await generateToken({ _id: result.insertedId, email: email, role: newUser.role });
 
             // Set HttpOnly cookie (same as login)
             res.cookie('token', token, {
@@ -416,8 +416,8 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Generate token for the user
-        const token = await generateToken({ _id: user._id, email: user.email, });
+        // Generate token for the user (include role)
+        const token = await generateToken({ _id: user._id, email: user.email, role: user.role || 'user' });
 
         // Set HttpOnly cookie with appropriate expiration
         res.cookie('token', token, {
