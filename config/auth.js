@@ -111,18 +111,9 @@ const checkRole = (roles) => {
         // Determine user role: prefer stored role, else fallback to admin email check and default to 'user'
         const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
 
-        // If role wasn't stored, persist it to DB for consistency
+        // If role wasn't stored, set it on the request only (do not persist to DB)
         if (!req.user.role) {
-            try {
-                const db = await connectToDB();
-                await db.collection("user").updateOne(
-                    { _id: new ObjectId(req.user._id) },
-                    { $set: { role: userRole } }
-                );
-                req.user.role = userRole;
-            } catch (err) {
-                console.error('Error setting default role for user:', err);
-            }
+            req.user.role = userRole;
         }
         
         if (!roles.includes(userRole)) {
