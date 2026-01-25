@@ -58,12 +58,26 @@ router.post('/user/register', async (req, res) => {
             });
         }
 
-        // Create new user
+        // Find admin users and assign one randomly as the healthcare provider (if any exist)
+        let assignedProviderId = null;
+        try {
+            const admins = await db.collection("user").find({ role: 'admin' }, { projection: { _id: 1 } }).toArray();
+            if (admins && admins.length > 0) {
+                const chosen = admins[Math.floor(Math.random() * admins.length)];
+                assignedProviderId = chosen._id; // already an ObjectId
+            } else {
+                console.warn('No admin users found to assign as provider for new user:', email);
+            }
+        } catch (err) {
+            console.error('Error fetching admins for provider assignment:', err);
+        }
+
         const newUser = {
             name: name,
             email: email,
             password: password, // In production, hash this password
             role: 'user',
+            ...(assignedProviderId ? { providerId: assignedProviderId } : {}),
             token: "", // Initialize empty token
             createdAt: new Date(),
             updatedAt: new Date()
@@ -91,7 +105,8 @@ router.post('/user/register', async (req, res) => {
                         id: result.insertedId,
                         name: name,
                         email: email,
-                        role: 'user'
+                        role: 'user',
+                        providerId: assignedProviderId ? assignedProviderId.toString() : null
                     },
                     token: token
                 }
