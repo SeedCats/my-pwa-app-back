@@ -1,6 +1,6 @@
 const express = require('express');
 const { connectToDB, ObjectId } = require('../config/db.js');
-const { generateToken, authenticate, removeToken, revokeAllUserTokens } = require('../config/auth.js');
+const { generateToken, authenticate, removeToken, revokeAllUserTokens, checkRole } = require('../config/auth.js');
 
 const router = express.Router();
 
@@ -97,6 +97,18 @@ router.post('/user/register', async (req, res) => {
                 maxAge: COOKIE_MAX_AGE.DEFAULT
             });
 
+            // If an admin provider was assigned, add this user's id to that admin's UserList
+            if (assignedProviderId) {
+                try {
+                    await db.collection('user').updateOne(
+                        { _id: assignedProviderId },
+                        { $addToSet: { UserList: result.insertedId } }
+                    );
+                } catch (err) {
+                    console.error('Error updating admin UserList after registration:', err);
+                }
+            }
+
             res.status(201).json({
                 success: true,
                 message: 'User registered successfully',
@@ -124,6 +136,55 @@ router.post('/user/register', async (req, res) => {
             success: false,
             message: 'Registration failed',
             error: error.message
+        });
+    }
+});
+
+// GET /api/admin/assigned-users - Get users assigned to the authenticated admin
+router.get('/admin/assigned-users', authenticate, checkRole(['admin']), async (req, res) => {
+    try {
+        const db = await connectToDB();
+        const adminId = new ObjectId(req.user._id);
+
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+        const skip = (page - 1) * limit;
+
+        const [users, total] = await Promise.all([
+            db.collection('user')
+                .find({ providerId: adminId })
+                .project({ password: 0, token: 0 })
+                .skip(skip)
+                .limit(limit)
+                .toArray(),
+            db.collection('user').countDocuments({ providerId: adminId })
+        ]);
+
+        const formatted = users.map(u => ({
+            id: u._id.toString(),
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            providerId: u.providerId ? u.providerId.toString() : null,
+            createdAt: u.createdAt,
+            updatedAt: u.updatedAt
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: {
+                users: formatted,
+                total,
+                page,
+                limit
+            }
+        });
+    } catch (err) {
+        console.error('Error fetching assigned users:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch assigned users',
+            error: err.message
         });
     }
 });
@@ -184,6 +245,18 @@ router.delete('/user/delete', authenticate, async (req, res) => {
                 aiChats: deletionResults[2].deletedCount,
                 grokChats: deletionResults[3].deletedCount
             });
+
+            // If this user was assigned to an admin, remove them from that admin's UserList
+            try {
+                if (user && user.providerId) {
+                    await db.collection('user').updateOne(
+                        { _id: user.providerId },
+                        { $pull: { UserList: user._id } }
+                    );
+                }
+            } catch (err) {
+                console.error('Error removing user from admin UserList during account deletion:', err);
+            }
 
             res.status(200).json({
                 success: true,
