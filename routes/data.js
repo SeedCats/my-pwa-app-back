@@ -7,10 +7,10 @@ const { Readable } = require('stream');
 
 const router = express.Router();
 
-// Configure multer for file uploads (50MB limit)
+// Configure multer for file uploads (100MB limit)
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 50 * 1024 * 1024 } // 50MB
+    limits: { fileSize: 100 * 1024 * 1024 } // 100MB
 });
 
 // POST /api/data/bmi - Create new BMI record
@@ -85,30 +85,14 @@ router.post('/bmi', authenticate, async (req, res) => {
     }
 });
 
-// GET /api/data/bmi - Get all BMI records for the authenticated user (admins may target another user via ?userId=...)
+// GET /api/data/bmi - Get all BMI records for the authenticated user
 router.get('/bmi', authenticate, async (req, res) => {
     try {
-        const { userId } = req.query;
         const db = await connectToDB();
-
-        // Validate optional userId and enforce admin-only access
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
 
         // Get all BMI records for this user, sorted by date (newest first)
         const records = await db.collection("bmiData")
-            .find({ userId: targetUserId })
+            .find({ userId: new ObjectId(req.user._id) })
             .sort({ createdAt: -1 })
             .toArray();
 
@@ -146,14 +130,11 @@ router.get('/bmi/:id', authenticate, async (req, res) => {
 
         const db = await connectToDB();
 
-        // Build query - admins may access any record by id, non-admins only their own
-        const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-        const query = { _id: new ObjectId(id) };
-        if (userRole !== 'admin') {
-            query.userId = new ObjectId(req.user._id);
-        }
-
-        const record = await db.collection("bmiData").findOne(query);
+        // Find record by ID and verify ownership
+        const record = await db.collection("bmiData").findOne({
+            _id: new ObjectId(id),
+            userId: new ObjectId(req.user._id)
+        });
 
         if (!record) {
             return res.status(404).json({
@@ -381,30 +362,14 @@ router.delete('/bmi', authenticate, async (req, res) => {
     }
 });
 
-// GET /api/data/bmi/stats - Get BMI statistics for the authenticated user (admins may target another user via ?userId=...)
+// GET /api/data/bmi/stats - Get BMI statistics for the authenticated user
 router.get('/bmi/stats', authenticate, async (req, res) => {
     try {
-        const { userId } = req.query;
         const db = await connectToDB();
-
-        // Validate optional userId and enforce admin-only access
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
 
         // Get all records for statistics
         const records = await db.collection("bmiData")
-            .find({ userId: targetUserId })
+            .find({ userId: new ObjectId(req.user._id) })
             .sort({ createdAt: -1 })
             .toArray();
 
@@ -1236,25 +1201,10 @@ router.post('/pressure/upload', authenticate, upload.single('file'), handlePress
 // GET /api/data/heartrate - Get heart rate data for a specific date
 router.get('/heartrate', authenticate, async (req, res) => {
     try {
-        const { date, startDate, endDate, userId } = req.query;
+        const { date, startDate, endDate } = req.query;
         const db = await connectToDB();
 
-        // Validate optional userId and enforce admin-only access when targeting other users
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
-
-        const query = { userId: targetUserId };
+        const query = { userId: new ObjectId(req.user._id) };
 
         if (date) {
             query.date = date;
@@ -1290,26 +1240,10 @@ router.get('/heartrate', authenticate, async (req, res) => {
 // GET /api/data/heartrate/dates - Get list of available dates
 router.get('/heartrate/dates', authenticate, async (req, res) => {
     try {
-        const { userId } = req.query;
         const db = await connectToDB();
 
-        // Validate optional userId and enforce admin-only access
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
-
         const dates = await db.collection("heartrate_daily")
-            .distinct("date", { userId: targetUserId });
+            .distinct("date", { userId: new ObjectId(req.user._id) });
 
         dates.sort((a, b) => new Date(b) - new Date(a));
 
@@ -1335,25 +1269,10 @@ router.get('/heartrate/dates', authenticate, async (req, res) => {
 // GET /api/data/heartrate/stats - Get overall statistics
 router.get('/heartrate/stats', authenticate, async (req, res) => {
     try {
-        const { startDate, endDate, userId } = req.query;
+        const { startDate, endDate } = req.query;
         const db = await connectToDB();
 
-        // Validate optional userId and enforce admin-only access
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
-
-        const query = { userId: targetUserId };
+        const query = { userId: new ObjectId(req.user._id) };
         if (startDate || endDate) {
             query.date = {};
             if (startDate) query.date.$gte = startDate;
@@ -1452,25 +1371,10 @@ router.delete('/heartrate/date/:date', authenticate, async (req, res) => {
 // GET /api/data/stress - Get stress data for a specific date or range
 router.get('/stress', authenticate, async (req, res) => {
     try {
-        const { date, startDate, endDate, userId } = req.query;
+        const { date, startDate, endDate } = req.query;
         const db = await connectToDB();
 
-        // Validate optional userId and enforce admin-only access when targeting other users
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
-
-        const query = { userId: targetUserId };
+        const query = { userId: new ObjectId(req.user._id) };
 
         if (date) {
             query.date = date;
@@ -1500,25 +1404,9 @@ router.get('/stress', authenticate, async (req, res) => {
 // GET /api/data/stress/dates - Get list of available dates
 router.get('/stress/dates', authenticate, async (req, res) => {
     try {
-        const { userId } = req.query;
         const db = await connectToDB();
 
-        // Validate optional userId
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
-
-        const dates = await db.collection("stress_daily").distinct("date", { userId: targetUserId });
+        const dates = await db.collection("stress_daily").distinct("date", { userId: new ObjectId(req.user._id) });
 
         dates.sort((a, b) => new Date(b) - new Date(a));
 
@@ -1533,25 +1421,10 @@ router.get('/stress/dates', authenticate, async (req, res) => {
 // GET /api/data/stress/stats - Get overall statistics
 router.get('/stress/stats', authenticate, async (req, res) => {
     try {
-        const { startDate, endDate, userId } = req.query;
+        const { startDate, endDate } = req.query;
         const db = await connectToDB();
 
-        // Validate optional userId and enforce admin-only access
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
-
-        const query = { userId: targetUserId };
+        const query = { userId: new ObjectId(req.user._id) };
         if (startDate || endDate) {
             query.date = {};
             if (startDate) query.date.$gte = startDate;
@@ -1621,25 +1494,10 @@ router.delete('/stress/date/:date', authenticate, async (req, res) => {
 // GET /api/data/pressure - Get pressure data for a specific date or range
 router.get('/pressure', authenticate, async (req, res) => {
     try {
-        const { date, startDate, endDate, userId } = req.query;
+        const { date, startDate, endDate } = req.query;
         const db = await connectToDB();
 
-        // Validate optional userId and enforce admin-only access
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
-
-        const query = { userId: targetUserId };
+        const query = { userId: new ObjectId(req.user._id) };
 
         if (date) {
             query.date = date;
@@ -1662,25 +1520,9 @@ router.get('/pressure', authenticate, async (req, res) => {
 // GET /api/data/pressure/dates - Get list of available dates
 router.get('/pressure/dates', authenticate, async (req, res) => {
     try {
-        const { userId } = req.query;
         const db = await connectToDB();
 
-        // Validate optional userId
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
-
-        const dates = await db.collection("pressure_daily").distinct("date", { userId: targetUserId });
+        const dates = await db.collection("pressure_daily").distinct("date", { userId: new ObjectId(req.user._id) });
 
         dates.sort((a, b) => new Date(b) - new Date(a));
 
@@ -1695,25 +1537,10 @@ router.get('/pressure/dates', authenticate, async (req, res) => {
 // GET /api/data/pressure/stats - Get overall statistics
 router.get('/pressure/stats', authenticate, async (req, res) => {
     try {
-        const { startDate, endDate, userId } = req.query;
+        const { startDate, endDate } = req.query;
         const db = await connectToDB();
 
-        // Validate optional userId and enforce admin-only access
-        let targetUserId;
-        if (userId) {
-            if (!ObjectId.isValid(userId)) {
-                return res.status(400).json({ success: false, message: 'Invalid userId format' });
-            }
-            const userRole = req.user.role || (req.user.email === 'admin@admin.com' ? 'admin' : 'user');
-            if (userId !== String(req.user._id) && userRole !== 'admin') {
-                return res.status(403).json({ success: false, message: "Forbidden: Only admins can view other users' data" });
-            }
-            targetUserId = new ObjectId(userId);
-        } else {
-            targetUserId = new ObjectId(req.user._id);
-        }
-
-        const query = { userId: targetUserId };
+        const query = { userId: new ObjectId(req.user._id) };
         if (startDate || endDate) {
             query.date = {};
             if (startDate) query.date.$gte = startDate;
@@ -1778,6 +1605,75 @@ router.delete('/pressure/date/:date', authenticate, async (req, res) => {
     } catch (error) {
         console.error('Pressure delete error:', error);
         res.status(500).json({ success: false, message: 'Error deleting pressure data', error: error.message });
+    }
+});
+
+// -------------------- STATUS ENDPOINTS --------------------
+// GET /api/data/status - Get user's current status
+router.get('/status', authenticate, async (req, res) => {
+    try {
+        const db = await connectToDB();
+        const targetUserId = new ObjectId(req.user._id);
+
+        let statusDoc = await db.collection('user_status').findOne({ userId: targetUserId });
+        if (!statusDoc) {
+            // create default
+            const now = new Date();
+            const doc = { userId: targetUserId, status: 'On-going', createdAt: now, updatedAt: now };
+            const r = await db.collection('user_status').insertOne(doc);
+            statusDoc = doc;
+            statusDoc._id = r.insertedId;
+        }
+
+        res.status(200).json({ success: true, message: 'Status fetched', data: { status: statusDoc.status, updatedAt: statusDoc.updatedAt, userId: String(statusDoc.userId) } });
+
+    } catch (error) {
+        console.error('Status fetch error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching status', error: error.message });
+    }
+});
+
+// POST /api/data/status/complete - Mark services as Completed for the current user
+router.post('/status/complete', authenticate, async (req, res) => {
+    try {
+        const db = await connectToDB();
+        const targetUserId = new ObjectId(req.user._id);
+
+        const now = new Date();
+        const update = {
+            $set: { status: 'Completed', updatedAt: now },
+            $setOnInsert: { createdAt: now }
+        };
+
+        const result = await db.collection('user_status').updateOne({ userId: targetUserId }, update, { upsert: true });
+
+        res.status(200).json({ success: true, message: 'Status set to Completed', data: { userId: String(targetUserId), upsertedId: result.upsertedId || null, modifiedCount: result.modifiedCount } });
+
+    } catch (error) {
+        console.error('Status update error:', error);
+        res.status(500).json({ success: false, message: 'Error updating status', error: error.message });
+    }
+});
+
+// POST /api/data/status/ongoing - Mark services as On-going for the current user
+router.post('/status/ongoing', authenticate, async (req, res) => {
+    try {
+        const db = await connectToDB();
+        const targetUserId = new ObjectId(req.user._id);
+
+        const now = new Date();
+        const update = {
+            $set: { status: 'On-going', updatedAt: now },
+            $setOnInsert: { createdAt: now }
+        };
+
+        const result = await db.collection('user_status').updateOne({ userId: targetUserId }, update, { upsert: true });
+
+        res.status(200).json({ success: true, message: 'Status set to On-going', data: { userId: String(targetUserId), upsertedId: result.upsertedId || null, modifiedCount: result.modifiedCount } });
+
+    } catch (error) {
+        console.error('Status update error:', error);
+        res.status(500).json({ success: false, message: 'Error updating status', error: error.message });
     }
 });
 

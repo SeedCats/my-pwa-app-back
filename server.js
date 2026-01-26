@@ -56,6 +56,7 @@ app.use((req, res, next) => {
 // Import routes
 const userRoutes = require('./routes/userRoute.js');
 const dataRoutes = require('./routes/data.js');
+const adminRoutes = require('./routes/admin.js');
 const aiRoutes = require('./routes/aiChat.js');
 const grokRoutes = require('./routes/grokChat.js');
 const providerRoutes = require('./routes/emailSMTP.js');
@@ -83,6 +84,7 @@ app.get('/health', (req, res) => {
 // Routes - mount directly on /api, frontend will call /api/"endpoint" for user routes
 app.use('/api', userRoutes);
 app.use('/api/data', dataRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/grok', grokRoutes);
 app.use('/api/provider', providerRoutes);
