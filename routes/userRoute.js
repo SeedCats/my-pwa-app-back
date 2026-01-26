@@ -605,4 +605,48 @@ router.get('/user/me', authenticate, async (req, res) => {
     }
 });
 
+// GET /api/user/:id - Get user by ID (admin or the same user)
+router.get('/user/:id', authenticate, async (req, res) => {
+    try {
+        const db = await connectToDB();
+        const id = req.params.id;
+
+        // Validate ID
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: 'Invalid user ID' });
+        }
+
+        const userId = new ObjectId(id);
+        const user = await db.collection('user').findOne({ _id: userId }, { projection: { password: 0, token: 0 } });
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // Authorization: allow if requester is the same user or an admin
+        const requesterId = req.user && req.user._id ? req.user._id.toString() : null;
+        if (req.user.role !== 'admin' && requesterId !== user._id.toString()) {
+            return res.status(403).json({ success: false, message: 'Access denied' });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                user: {
+                    id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role || 'user',
+                    providerId: user.providerId ? user.providerId.toString() : null,
+                    createdAt: user.createdAt,
+                    updatedAt: user.updatedAt
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Get user by ID error:', error);
+        res.status(500).json({ success: false, message: 'Error getting user', error: error.message });
+    }
+});
+
 module.exports = router;
