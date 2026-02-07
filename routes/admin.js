@@ -138,6 +138,149 @@ router.delete('/users/:userId/heartrate', ...adminMiddleware, async (req, res) =
     }
 });
 
+// POST /api/admin/users/:userId/heartrate/upload - Admin upload heartrate CSV for specific user
+router.post('/users/:userId/heartrate/upload', ...adminMiddleware, upload.single('file'), async (req, res) => {
+    try {
+        const { userId } = req.params;
+        if (!validateUserIdParam(userId, res)) return;
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No file uploaded' });
+        }
+
+        const db = await connectToDB();
+        const userIdObj = new ObjectId(userId);
+
+        // Check if user exists
+        const user = await db.collection('user').findOne({ _id: userIdObj });
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
+        }
+
+        const userEmail = user.email;
+
+        // Parse CSV
+        const csvContent = req.file.buffer.toString('utf-8');
+        const lines = csvContent.split('\n');
+
+        // Group records by date and hour
+        const dailyData = {};
+        let totalParsed = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            try {
+                const startIdx = line.indexOf('{');
+                const endIdx = line.lastIndexOf('}');
+
+                if (startIdx !== -1 && endIdx !== -1) {
+                    const jsonStr = line.substring(startIdx, endIdx + 1).replace(/""/g, '"');
+                    const parsed = JSON.parse(jsonStr);
+
+                    if (parsed.time && parsed.bpm !== undefined) {
+                        const bpm = parseInt(parsed.bpm);
+                        if (!isNaN(bpm) && bpm >= 20 && bpm <= 220) {
+                            const timeDate = new Date(parsed.time * 1000);
+                            const dateOnly = timeDate.toISOString().split('T')[0];
+                            const hour = timeDate.getHours();
+
+                            if (!dailyData[dateOnly]) {
+                                dailyData[dateOnly] = { hourly: {}, all: [] };
+                            }
+
+                            if (!dailyData[dateOnly].hourly[hour]) dailyData[dateOnly].hourly[hour] = [];
+                            dailyData[dateOnly].hourly[hour].push(bpm);
+                            dailyData[dateOnly].all.push(bpm);
+                            totalParsed++;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Skip invalid lines
+            }
+        }
+
+        if (totalParsed === 0) {
+            return res.status(400).json({ success: false, message: 'No valid heart rate records found in CSV file' });
+        }
+
+        let inserted = 0, updated = 0;
+
+        for (const [date, data] of Object.entries(dailyData)) {
+            // Build hourly summaries
+            const hourlyStats = [];
+            for (let h = 0; h < 24; h++) {
+                const arr = data.hourly[h] || [];
+                if (arr.length > 0) {
+                    hourlyStats.push({
+                        hour: h,
+                        avg: Math.round(arr.reduce((a, b) => a + b, 0) / arr.length),
+                        min: Math.min(...arr),
+                        max: Math.max(...arr),
+                        count: arr.length
+                    });
+                } else {
+                    hourlyStats.push({ hour: h, avg: null, min: null, max: null, count: 0 });
+                }
+            }
+
+            const dailyStats = {
+                avg: Math.round(data.all.reduce((a, b) => a + b, 0) / data.all.length),
+                min: Math.min(...data.all),
+                max: Math.max(...data.all),
+                count: data.all.length
+            };
+
+            // Upsert
+            const existing = await db.collection("heartrate_daily").findOne({ userId: userIdObj, date: date });
+            if (existing) {
+                await db.collection("heartrate_daily").updateOne(
+                    { _id: existing._id },
+                    { $set: { hourlyData: hourlyStats, dailyStats: dailyStats, updatedAt: new Date() } }
+                );
+                updated++;
+            } else {
+                await db.collection("heartrate_daily").insertOne({
+                    userId: userIdObj,
+                    userEmail: userEmail,
+                    date: date,
+                    hourlyData: hourlyStats,
+                    dailyStats: dailyStats,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                });
+                inserted++;
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Heart rate CSV uploaded successfully',
+            data: {
+                userId: userId,
+                userEmail: userEmail,
+                totalRecordsParsed: totalParsed,
+                inserted: inserted,
+                updated: updated,
+                total: inserted + updated
+            }
+        });
+
+    } catch (error) {
+        console.error('Admin heartrate upload error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error uploading heart rate CSV',
+            error: error.message
+        });
+    }
+});
+
 // ---------------------- STRESS ----------------------
 router.get('/users/:userId/stress', ...adminMiddleware, async (req, res) => {
     try {
@@ -244,6 +387,149 @@ router.delete('/users/:userId/stress', ...adminMiddleware, async (req, res) => {
             success: false, 
             message: 'Error deleting stress records', 
             error: error.message 
+        });
+    }
+});
+
+// POST /api/admin/users/:userId/stress/upload - Admin upload stress CSV for specific user
+router.post('/users/:userId/stress/upload', ...adminMiddleware, upload.single('file'), async (req, res) => {
+    try {
+        const { userId } = req.params;
+        if (!validateUserIdParam(userId, res)) return;
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No file uploaded' });
+        }
+
+        const db = await connectToDB();
+        const userIdObj = new ObjectId(userId);
+
+        // Check if user exists
+        const user = await db.collection('user').findOne({ _id: userIdObj });
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
+        }
+
+        const userEmail = user.email;
+
+        // Parse CSV
+        const csvContent = req.file.buffer.toString('utf-8');
+        const lines = csvContent.split('\n');
+
+        // Group records by date and hour
+        const dailyData = {};
+        let totalParsed = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            try {
+                const startIdx = line.indexOf('{');
+                const endIdx = line.lastIndexOf('}');
+
+                if (startIdx !== -1 && endIdx !== -1) {
+                    const jsonStr = line.substring(startIdx, endIdx + 1).replace(/""/g, '"');
+                    const parsed = JSON.parse(jsonStr);
+
+                    if (parsed.time && parsed.stress !== undefined) {
+                        const stressVal = parseFloat(parsed.stress);
+                        if (!isNaN(stressVal) && stressVal >= 0 && stressVal <= 100) {
+                            const timeDate = new Date(parsed.time * 1000);
+                            const dateOnly = timeDate.toISOString().split('T')[0];
+                            const hour = timeDate.getHours();
+
+                            if (!dailyData[dateOnly]) {
+                                dailyData[dateOnly] = { hourly: {}, all: [] };
+                            }
+
+                            if (!dailyData[dateOnly].hourly[hour]) dailyData[dateOnly].hourly[hour] = [];
+                            dailyData[dateOnly].hourly[hour].push(stressVal);
+                            dailyData[dateOnly].all.push(stressVal);
+                            totalParsed++;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Skip invalid lines
+            }
+        }
+
+        if (totalParsed === 0) {
+            return res.status(400).json({ success: false, message: 'No valid stress records found in CSV file' });
+        }
+
+        let inserted = 0, updated = 0;
+
+        for (const [date, data] of Object.entries(dailyData)) {
+            // Build hourly summaries
+            const hourlyStats = [];
+            for (let h = 0; h < 24; h++) {
+                const arr = data.hourly[h] || [];
+                if (arr.length > 0) {
+                    hourlyStats.push({
+                        hour: h,
+                        avg: Math.round(arr.reduce((a, b) => a + b, 0) / arr.length),
+                        min: Math.min(...arr),
+                        max: Math.max(...arr),
+                        count: arr.length
+                    });
+                } else {
+                    hourlyStats.push({ hour: h, avg: null, min: null, max: null, count: 0 });
+                }
+            }
+
+            const dailyStats = {
+                avg: Math.round(data.all.reduce((a, b) => a + b, 0) / data.all.length),
+                min: Math.min(...data.all),
+                max: Math.max(...data.all),
+                count: data.all.length
+            };
+
+            // Upsert
+            const existing = await db.collection("stress_daily").findOne({ userId: userIdObj, date: date });
+            if (existing) {
+                await db.collection("stress_daily").updateOne(
+                    { _id: existing._id },
+                    { $set: { hourlyData: hourlyStats, dailyStats: dailyStats, updatedAt: new Date() } }
+                );
+                updated++;
+            } else {
+                await db.collection("stress_daily").insertOne({
+                    userId: userIdObj,
+                    userEmail: userEmail,
+                    date: date,
+                    hourlyData: hourlyStats,
+                    dailyStats: dailyStats,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                });
+                inserted++;
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Stress CSV uploaded successfully',
+            data: {
+                userId: userId,
+                userEmail: userEmail,
+                totalRecordsParsed: totalParsed,
+                inserted: inserted,
+                updated: updated,
+                total: inserted + updated
+            }
+        });
+
+    } catch (error) {
+        console.error('Admin stress upload error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error uploading stress CSV',
+            error: error.message
         });
     }
 });
