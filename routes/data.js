@@ -1614,18 +1614,19 @@ router.get('/status', authenticate, async (req, res) => {
     try {
         const db = await connectToDB();
         const targetUserId = new ObjectId(req.user._id);
+        const now = new Date();
 
-        let statusDoc = await db.collection('user_status').findOne({ userId: targetUserId });
-        if (!statusDoc) {
-            // create default
-            const now = new Date();
-            const doc = { userId: targetUserId, status: 'On-going', createdAt: now, updatedAt: now };
-            const r = await db.collection('user_status').insertOne(doc);
-            statusDoc = doc;
-            statusDoc._id = r.insertedId;
-        }
+        // Use upsert to ensure status exists - creates user doc if needed
+        const userDoc = await db.collection('user').findOneAndUpdate(
+            { _id: targetUserId },
+            { 
+                $setOnInsert: { status: 'On-going', statusUpdatedAt: now },
+                $set: { lastAccessedAt: now }
+            },
+            { upsert: true, returnDocument: 'after' }
+        );
 
-        res.status(200).json({ success: true, message: 'Status fetched', data: { status: statusDoc.status, updatedAt: statusDoc.updatedAt, userId: String(statusDoc.userId) } });
+        res.status(200).json({ success: true, message: 'Status fetched', data: { status: userDoc.status, updatedAt: userDoc.statusUpdatedAt, userId: String(userDoc._id) } });
 
     } catch (error) {
         console.error('Status fetch error:', error);
@@ -1640,14 +1641,12 @@ router.post('/status/complete', authenticate, async (req, res) => {
         const targetUserId = new ObjectId(req.user._id);
 
         const now = new Date();
-        const update = {
-            $set: { status: 'Completed', updatedAt: now },
-            $setOnInsert: { createdAt: now }
-        };
+        const result = await db.collection('user').updateOne(
+            { _id: targetUserId },
+            { $set: { status: 'Completed', statusUpdatedAt: now } }
+        );
 
-        const result = await db.collection('user_status').updateOne({ userId: targetUserId }, update, { upsert: true });
-
-        res.status(200).json({ success: true, message: 'Status set to Completed', data: { userId: String(targetUserId), upsertedId: result.upsertedId || null, modifiedCount: result.modifiedCount } });
+        res.status(200).json({ success: true, message: 'Status set to Completed', data: { userId: String(targetUserId), modifiedCount: result.modifiedCount } });
 
     } catch (error) {
         console.error('Status update error:', error);
@@ -1662,14 +1661,12 @@ router.post('/status/ongoing', authenticate, async (req, res) => {
         const targetUserId = new ObjectId(req.user._id);
 
         const now = new Date();
-        const update = {
-            $set: { status: 'On-going', updatedAt: now },
-            $setOnInsert: { createdAt: now }
-        };
+        const result = await db.collection('user').updateOne(
+            { _id: targetUserId },
+            { $set: { status: 'On-going', statusUpdatedAt: now } }
+        );
 
-        const result = await db.collection('user_status').updateOne({ userId: targetUserId }, update, { upsert: true });
-
-        res.status(200).json({ success: true, message: 'Status set to On-going', data: { userId: String(targetUserId), upsertedId: result.upsertedId || null, modifiedCount: result.modifiedCount } });
+        res.status(200).json({ success: true, message: 'Status set to On-going', data: { userId: String(targetUserId), modifiedCount: result.modifiedCount } });
 
     } catch (error) {
         console.error('Status update error:', error);
