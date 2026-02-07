@@ -375,13 +375,13 @@ router.post('/users/:userId/bmi', ...adminMiddleware, async (req, res) => {
         const { userId } = req.params;
         if (!validateUserIdParam(userId, res)) return;
 
-        const { weight, height, bmi } = req.body;
+        const { weight, height, age, bmi } = req.body;
 
-        // Validation - weight and height are required
-        if (!weight || !height) {
+        // Validation - weight, height, and age are required
+        if (!weight || !height || age === undefined) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'Weight and height are required' 
+                message: 'Weight, height, and age are required' 
             });
         }
 
@@ -396,6 +396,13 @@ router.post('/users/:userId/bmi', ...adminMiddleware, async (req, res) => {
             return res.status(400).json({ 
                 success: false, 
                 message: 'Height must be a positive number' 
+            });
+        }
+
+        if (typeof age !== 'number' || age < 0 || age > 150) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Age must be a valid number between 0 and 150' 
             });
         }
 
@@ -419,6 +426,7 @@ router.post('/users/:userId/bmi', ...adminMiddleware, async (req, res) => {
             userId: userIdObj,
             weight: weight,
             height: height,
+            age: age,
             bmi: calculatedBmi,
             createdAt: new Date(),
             updatedAt: new Date()
@@ -435,6 +443,7 @@ router.post('/users/:userId/bmi', ...adminMiddleware, async (req, res) => {
                     userId: userId,
                     weight: weight,
                     height: height,
+                    age: age,
                     bmi: calculatedBmi,
                     createdAt: newBmiRecord.createdAt,
                     updatedAt: newBmiRecord.updatedAt
@@ -466,13 +475,13 @@ router.put('/users/:userId/bmi/:bmiId', ...adminMiddleware, async (req, res) => 
             return res.status(400).json({ success: false, message: 'Invalid BMI record ID format' });
         }
 
-        const { weight, height, bmi } = req.body;
+        const { weight, height, age, bmi } = req.body;
 
         // Validation - at least one field must be provided
-        if (weight === undefined && height === undefined && bmi === undefined) {
+        if (weight === undefined && height === undefined && age === undefined && bmi === undefined) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'At least one field (weight, height, or bmi) must be provided' 
+                message: 'At least one field (weight, height, age, or bmi) must be provided' 
             });
         }
 
@@ -518,6 +527,17 @@ router.put('/users/:userId/bmi/:bmiId', ...adminMiddleware, async (req, res) => 
                 });
             }
             updateData.height = height;
+        }
+
+        // Update age if provided
+        if (age !== undefined) {
+            if (typeof age !== 'number' || age < 0 || age > 150) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Age must be a valid number between 0 and 150' 
+                });
+            }
+            updateData.age = age;
         }
 
         // Calculate BMI if both weight and height are available
