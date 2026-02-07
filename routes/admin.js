@@ -320,6 +320,82 @@ router.get('/users/:id', ...adminMiddleware, async (req, res) => {
     }
 });
 
+// PUT /api/admin/users/:userId/password - Admin update user password
+router.put('/users/:userId/password', ...adminMiddleware, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        if (!validateUserIdParam(userId, res)) return;
+
+        const { newPassword } = req.body;
+
+        // Validate new password
+        if (!newPassword || typeof newPassword !== 'string') {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'New password is required' 
+            });
+        }
+
+        // Password validation (minimum length)
+        const MIN_PASSWORD_LENGTH = 6;
+        if (newPassword.length < MIN_PASSWORD_LENGTH) {
+            return res.status(400).json({ 
+                success: false, 
+                message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long` 
+            });
+        }
+
+        const db = await connectToDB();
+        const userIdObj = new ObjectId(userId);
+
+        // Check if user exists
+        const user = await db.collection('user').findOne({ _id: userIdObj });
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
+        }
+
+        // Update password and clear tokens to force re-login
+        const updateResult = await db.collection('user').updateOne(
+            { _id: userIdObj },
+            { 
+                $set: { 
+                    password: newPassword,
+                    token: "",
+                    updatedAt: new Date()
+                },
+                $unset: { tokens: "" }
+            }
+        );
+
+        if (updateResult.modifiedCount === 1) {
+            res.status(200).json({ 
+                success: true, 
+                message: 'Password updated successfully. User will need to login again.',
+                data: {
+                    userId: userId,
+                    email: user.email
+                }
+            });
+        } else {
+            res.status(500).json({ 
+                success: false, 
+                message: 'Failed to update password' 
+            });
+        }
+
+    } catch (error) {
+        console.error('Admin password update error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error updating password', 
+            error: error.message 
+        });
+    }
+});
+
 // ---------------------- STATUS ----------------------
 router.get('/users/:userId/status', ...adminMiddleware, async (req, res) => {
     try {
