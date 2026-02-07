@@ -1623,12 +1623,14 @@ router.get('/status', authenticate, async (req, res) => {
         // If status doesn't exist on user, initialize it with default values
         if (!user.status) {
             const now = new Date();
-            await db.collection('user').updateOne(
+            const updateResult = await db.collection('user').updateOne(
                 { _id: targetUserId },
                 { $set: { status: 'On-going', statusUpdatedAt: now } }
             );
-            user.status = 'On-going';
-            user.statusUpdatedAt = now;
+            if (updateResult.modifiedCount > 0) {
+                user.status = 'On-going';
+                user.statusUpdatedAt = now;
+            }
         }
 
         res.status(200).json({ success: true, message: 'Status fetched', data: { status: user.status, updatedAt: user.statusUpdatedAt, userId: String(targetUserId) } });
@@ -1652,6 +1654,10 @@ router.post('/status/complete', authenticate, async (req, res) => {
 
         const result = await db.collection('user').updateOne({ _id: targetUserId }, update);
 
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
         res.status(200).json({ success: true, message: 'Status set to Completed', data: { userId: String(targetUserId), modifiedCount: result.modifiedCount } });
 
     } catch (error) {
@@ -1672,6 +1678,10 @@ router.post('/status/ongoing', authenticate, async (req, res) => {
         };
 
         const result = await db.collection('user').updateOne({ _id: targetUserId }, update);
+
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
 
         res.status(200).json({ success: true, message: 'Status set to On-going', data: { userId: String(targetUserId), modifiedCount: result.modifiedCount } });
 

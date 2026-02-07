@@ -335,12 +335,14 @@ router.get('/users/:userId/status', ...adminMiddleware, async (req, res) => {
         // If status doesn't exist on user, initialize it with default values
         if (!user.status) {
             const now = new Date();
-            await db.collection('user').updateOne(
+            const updateResult = await db.collection('user').updateOne(
                 { _id: new ObjectId(userId) },
                 { $set: { status: 'On-going', statusUpdatedAt: now } }
             );
-            user.status = 'On-going';
-            user.statusUpdatedAt = now;
+            if (updateResult.modifiedCount > 0) {
+                user.status = 'On-going';
+                user.statusUpdatedAt = now;
+            }
         }
 
         res.status(200).json({ success: true, message: 'Status fetched', data: { status: user.status, updatedAt: user.statusUpdatedAt, userId: String(userId) } });
@@ -358,6 +360,11 @@ router.post('/users/:userId/status/complete', ...adminMiddleware, async (req, re
         const db = await connectToDB();
         const now = new Date();
         const result = await db.collection('user').updateOne({ _id: new ObjectId(userId) }, { $set: { status: 'Completed', statusUpdatedAt: now, updatedAt: now } });
+        
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
         res.status(200).json({ success: true, message: 'Status set to Completed', data: { userId: String(userId), modifiedCount: result.modifiedCount } });
     } catch (error) {
         console.error('Admin status update error:', error);
@@ -373,6 +380,11 @@ router.post('/users/:userId/status/ongoing', ...adminMiddleware, async (req, res
         const db = await connectToDB();
         const now = new Date();
         const result = await db.collection('user').updateOne({ _id: new ObjectId(userId) }, { $set: { status: 'On-going', statusUpdatedAt: now, updatedAt: now } });
+        
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
         res.status(200).json({ success: true, message: 'Status set to On-going', data: { userId: String(userId), modifiedCount: result.modifiedCount } });
     } catch (error) {
         console.error('Admin status update error:', error);
