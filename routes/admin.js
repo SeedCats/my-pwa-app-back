@@ -965,6 +965,7 @@ router.get('/users/:id', ...adminMiddleware, async (req, res) => {
                     email: user.email,
                     role: user.role || 'user',
                     providerId: user.providerId ? user.providerId.toString() : null,
+                    providerName: user.providerName || null,
                     createdAt: user.createdAt,
                     updatedAt: user.updatedAt
                 }
@@ -1163,9 +1164,11 @@ router.put('/user/:id', ...adminMiddleware, async (req, res) => {
                     return res.status(400).json({ success: false, message: 'Provider not found or not an admin' });
                 }
                 updateData.providerId = provObjId;
+                updateData.providerName = provider.name;
             } else {
                 // allow clearing provider
                 updateData.providerId = null;
+                updateData.providerName = null;
             }
         }
 

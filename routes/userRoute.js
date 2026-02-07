@@ -60,11 +60,13 @@ router.post('/user/register', async (req, res) => {
 
         // Find admin users and assign one randomly as the healthcare provider (if any exist)
         let assignedProviderId = null;
+        let assignedProviderName = null;
         try {
-            const admins = await db.collection("user").find({ role: 'admin' }, { projection: { _id: 1 } }).toArray();
+            const admins = await db.collection("user").find({ role: 'admin' }, { projection: { _id: 1, name: 1 } }).toArray();
             if (admins && admins.length > 0) {
                 const chosen = admins[Math.floor(Math.random() * admins.length)];
                 assignedProviderId = chosen._id; // already an ObjectId
+                assignedProviderName = chosen.name;
             } else {
                 console.warn('No admin users found to assign as provider for new user:', email);
             }
@@ -77,7 +79,7 @@ router.post('/user/register', async (req, res) => {
             email: email,
             password: password, // In production, hash this password
             role: 'user',
-            ...(assignedProviderId ? { providerId: assignedProviderId } : {}),
+            ...(assignedProviderId ? { providerId: assignedProviderId, providerName: assignedProviderName } : {}),
             token: "", // Initialize empty token
             createdAt: new Date(),
             updatedAt: new Date()
@@ -118,7 +120,8 @@ router.post('/user/register', async (req, res) => {
                         name: name,
                         email: email,
                         role: 'user',
-                        providerId: assignedProviderId ? assignedProviderId.toString() : null
+                        providerId: assignedProviderId ? assignedProviderId.toString() : null,
+                        providerName: assignedProviderName
                     },
                     token: token
                 }
@@ -591,7 +594,9 @@ router.get('/user/me', authenticate, async (req, res) => {
                     id: req.user._id,
                     name: req.user.name,
                     email: req.user.email,
-                    role: req.user.role || 'user'
+                    role: req.user.role || 'user',
+                    providerId: req.user.providerId ? req.user.providerId.toString() : null,
+                    providerName: req.user.providerName || null
                 }
             }
         });
