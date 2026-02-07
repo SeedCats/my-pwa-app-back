@@ -327,15 +327,23 @@ router.get('/users/:userId/status', ...adminMiddleware, async (req, res) => {
         if (!validateUserIdParam(userId, res)) return;
 
         const db = await connectToDB();
-        let statusDoc = await db.collection('user_status').findOne({ userId: new ObjectId(userId) });
-        if (!statusDoc) {
-            const now = new Date();
-            const doc = { userId: new ObjectId(userId), status: 'On-going', createdAt: now, updatedAt: now };
-            const r = await db.collection('user_status').insertOne(doc);
-            statusDoc = doc; statusDoc._id = r.insertedId;
+        let user = await db.collection('user').findOne({ _id: new ObjectId(userId) });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        res.status(200).json({ success: true, message: 'Status fetched', data: { status: statusDoc.status, updatedAt: statusDoc.updatedAt, userId: String(statusDoc.userId) } });
+        // If status doesn't exist on user, initialize it with default values
+        if (!user.status) {
+            const now = new Date();
+            await db.collection('user').updateOne(
+                { _id: new ObjectId(userId) },
+                { $set: { status: 'On-going', statusUpdatedAt: now, updatedAt: now } }
+            );
+            user.status = 'On-going';
+            user.statusUpdatedAt = now;
+        }
+
+        res.status(200).json({ success: true, message: 'Status fetched', data: { status: user.status, updatedAt: user.statusUpdatedAt, userId: String(userId) } });
     } catch (error) {
         console.error('Admin status fetch error:', error);
         res.status(500).json({ success: false, message: 'Error fetching status', error: error.message });
@@ -349,8 +357,13 @@ router.post('/users/:userId/status/complete', ...adminMiddleware, async (req, re
 
         const db = await connectToDB();
         const now = new Date();
-        const result = await db.collection('user_status').updateOne({ userId: new ObjectId(userId) }, { $set: { status: 'Completed', updatedAt: now }, $setOnInsert: { createdAt: now } }, { upsert: true });
-        res.status(200).json({ success: true, message: 'Status set to Completed', data: { userId: String(userId), upsertedId: result.upsertedId || null, modifiedCount: result.modifiedCount } });
+        const result = await db.collection('user').updateOne({ _id: new ObjectId(userId) }, { $set: { status: 'Completed', statusUpdatedAt: now, updatedAt: now } });
+        
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        res.status(200).json({ success: true, message: 'Status set to Completed', data: { userId: String(userId), upsertedId: null, modifiedCount: result.modifiedCount } });
     } catch (error) {
         console.error('Admin status update error:', error);
         res.status(500).json({ success: false, message: 'Error updating status', error: error.message });
@@ -364,8 +377,13 @@ router.post('/users/:userId/status/ongoing', ...adminMiddleware, async (req, res
 
         const db = await connectToDB();
         const now = new Date();
-        const result = await db.collection('user_status').updateOne({ userId: new ObjectId(userId) }, { $set: { status: 'On-going', updatedAt: now }, $setOnInsert: { createdAt: now } }, { upsert: true });
-        res.status(200).json({ success: true, message: 'Status set to On-going', data: { userId: String(userId), upsertedId: result.upsertedId || null, modifiedCount: result.modifiedCount } });
+        const result = await db.collection('user').updateOne({ _id: new ObjectId(userId) }, { $set: { status: 'On-going', statusUpdatedAt: now, updatedAt: now } });
+        
+        if (result.matchedCount === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        res.status(200).json({ success: true, message: 'Status set to On-going', data: { userId: String(userId), upsertedId: null, modifiedCount: result.modifiedCount } });
     } catch (error) {
         console.error('Admin status update error:', error);
         res.status(500).json({ success: false, message: 'Error updating status', error: error.message });
