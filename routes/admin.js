@@ -337,7 +337,7 @@ router.get('/users/:userId/status', ...adminMiddleware, async (req, res) => {
             const now = new Date();
             await db.collection('user').updateOne(
                 { _id: new ObjectId(userId) },
-                { $set: { status: 'On-going', statusUpdatedAt: now } }
+                { $set: { status: 'On-going', statusUpdatedAt: now, updatedAt: now } }
             );
             user.status = 'On-going';
             user.statusUpdatedAt = now;
