@@ -363,7 +363,7 @@ router.post('/users/:userId/status/complete', ...adminMiddleware, async (req, re
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        res.status(200).json({ success: true, message: 'Status set to Completed', data: { userId: String(userId), modifiedCount: result.modifiedCount } });
+        res.status(200).json({ success: true, message: 'Status set to Completed', data: { userId: String(userId), upsertedId: null, modifiedCount: result.modifiedCount } });
     } catch (error) {
         console.error('Admin status update error:', error);
         res.status(500).json({ success: false, message: 'Error updating status', error: error.message });
@@ -383,7 +383,7 @@ router.post('/users/:userId/status/ongoing', ...adminMiddleware, async (req, res
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        res.status(200).json({ success: true, message: 'Status set to On-going', data: { userId: String(userId), modifiedCount: result.modifiedCount } });
+        res.status(200).json({ success: true, message: 'Status set to On-going', data: { userId: String(userId), upsertedId: null, modifiedCount: result.modifiedCount } });
     } catch (error) {
         console.error('Admin status update error:', error);
         res.status(500).json({ success: false, message: 'Error updating status', error: error.message });
