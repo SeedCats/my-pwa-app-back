@@ -89,6 +89,48 @@ router.get('/users/:userId/heartrate/stats', ...adminMiddleware, async (req, res
     }
 });
 
+// DELETE /api/admin/users/:userId/heartrate - Admin delete user's heart rate data
+router.delete('/users/:userId/heartrate', ...adminMiddleware, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        if (!validateUserIdParam(userId, res)) return;
+
+        const { date, startDate, endDate } = req.query;
+        const db = await connectToDB();
+        const userIdObj = new ObjectId(userId);
+
+        // Build query
+        const query = { userId: userIdObj };
+        if (date) {
+            query.date = date;
+        } else if (startDate || endDate) {
+            query.date = {};
+            if (startDate) query.date.$gte = startDate;
+            if (endDate) query.date.$lte = endDate;
+        }
+
+        // Delete the records
+        const deleteResult = await db.collection('heartrate_daily').deleteMany(query);
+
+        res.status(200).json({ 
+            success: true, 
+            message: `Deleted ${deleteResult.deletedCount} heart rate record(s) successfully`,
+            data: {
+                deletedCount: deleteResult.deletedCount,
+                userId: userId
+            }
+        });
+
+    } catch (error) {
+        console.error('Admin heart rate delete error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error deleting heart rate records', 
+            error: error.message 
+        });
+    }
+});
+
 // ---------------------- STRESS ----------------------
 router.get('/users/:userId/stress', ...adminMiddleware, async (req, res) => {
     try {
@@ -154,6 +196,48 @@ router.get('/users/:userId/stress/stats', ...adminMiddleware, async (req, res) =
     } catch (error) {
         console.error('Admin stress stats error:', error);
         res.status(500).json({ success: false, message: 'Error fetching stress statistics', error: error.message });
+    }
+});
+
+// DELETE /api/admin/users/:userId/stress - Admin delete user's stress data
+router.delete('/users/:userId/stress', ...adminMiddleware, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        if (!validateUserIdParam(userId, res)) return;
+
+        const { date, startDate, endDate } = req.query;
+        const db = await connectToDB();
+        const userIdObj = new ObjectId(userId);
+
+        // Build query
+        const query = { userId: userIdObj };
+        if (date) {
+            query.date = date;
+        } else if (startDate || endDate) {
+            query.date = {};
+            if (startDate) query.date.$gte = startDate;
+            if (endDate) query.date.$lte = endDate;
+        }
+
+        // Delete the records
+        const deleteResult = await db.collection('stress_daily').deleteMany(query);
+
+        res.status(200).json({ 
+            success: true, 
+            message: `Deleted ${deleteResult.deletedCount} stress record(s) successfully`,
+            data: {
+                deletedCount: deleteResult.deletedCount,
+                userId: userId
+            }
+        });
+
+    } catch (error) {
+        console.error('Admin stress delete error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error deleting stress records', 
+            error: error.message 
+        });
     }
 });
 
