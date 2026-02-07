@@ -1623,18 +1623,12 @@ router.get('/status', authenticate, async (req, res) => {
         // If status doesn't exist on user, initialize it with default values
         if (!user.status) {
             const now = new Date();
-            const updateResult = await db.collection('user').updateOne(
+            await db.collection('user').updateOne(
                 { _id: targetUserId },
                 { $set: { status: 'On-going', statusUpdatedAt: now } }
             );
-            if (updateResult.modifiedCount > 0) {
-                user.status = 'On-going';
-                user.statusUpdatedAt = now;
-            } else {
-                // If update failed, return default values without persisting
-                user.status = 'On-going';
-                user.statusUpdatedAt = now;
-            }
+            user.status = 'On-going';
+            user.statusUpdatedAt = now;
         }
 
         res.status(200).json({ success: true, message: 'Status fetched', data: { status: user.status, updatedAt: user.statusUpdatedAt, userId: String(targetUserId) } });
