@@ -1,8 +1,15 @@
 const express = require('express');
 const { connectToDB, ObjectId } = require('../config/db.js');
 const { authenticate, checkRole } = require('../config/auth.js');
+const multer = require('multer');
 
 const router = express.Router();
+
+// Configure multer for file uploads (100MB limit)
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+});
 
 // All admin routes require authentication + admin role
 const adminMiddleware = [authenticate, checkRole(['admin'])];
@@ -963,6 +970,321 @@ router.delete('/user/:id', ...adminMiddleware, async (req, res) => {
     } catch (error) {
         console.error('Admin delete user error:', error);
         res.status(500).json({ success: false, message: 'Error deleting user', error: error.message });
+    }
+});
+
+// ---------------------- CSV UPLOAD ----------------------
+// POST /api/admin/users/:userId/uploadAll - Admin upload CSV data for specific user
+router.post('/users/:userId/uploadAll', ...adminMiddleware, upload.single('file'), async (req, res) => {
+    try {
+        const { userId } = req.params;
+        if (!validateUserIdParam(userId, res)) return;
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No file uploaded' });
+        }
+
+        const db = await connectToDB();
+        const userIdObj = new ObjectId(userId);
+
+        // Check if user exists
+        const user = await db.collection('user').findOne({ _id: userIdObj });
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
+        }
+
+        const userEmail = user.email;
+
+        // Parse CSV
+        const csvContent = req.file.buffer.toString('utf-8');
+        const lines = csvContent.split('\n');
+
+        // Group records by date and hour for aggregation
+        const dailyData = {};
+        let totalParsed = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            try {
+                const startIdx = line.indexOf('{');
+                const endIdx = line.lastIndexOf('}');
+
+                if (startIdx !== -1 && endIdx !== -1) {
+                    const jsonStr = line.substring(startIdx, endIdx + 1).replace(/""/g, '"');
+                    const parsed = JSON.parse(jsonStr);
+
+                    if (parsed.time) {
+                        const timeDate = new Date(parsed.time * 1000);
+                        const dateOnly = timeDate.toISOString().split('T')[0];
+                        const hour = timeDate.getHours();
+
+                        if (!dailyData[dateOnly]) {
+                            dailyData[dateOnly] = { hourlyHr: {}, allHr: [], hourlyStress: {}, allStress: [], hourlyPressure: {}, allSystolic: [], allDiastolic: [] };
+                        }
+
+                        let anyValid = false;
+
+                        // Handle BPM if present
+                        if (parsed.bpm !== undefined) {
+                            const bpm = parseInt(parsed.bpm);
+                            if (!isNaN(bpm) && bpm >= 20 && bpm <= 220) {
+                                if (!dailyData[dateOnly].hourlyHr[hour]) dailyData[dateOnly].hourlyHr[hour] = [];
+                                dailyData[dateOnly].hourlyHr[hour].push(bpm);
+                                dailyData[dateOnly].allHr.push(bpm);
+                                anyValid = true;
+                            }
+                        }
+
+                        // Handle stress if present (expected 0-100)
+                        if (parsed.stress !== undefined) {
+                            const stressVal = parseFloat(parsed.stress);
+                            if (!isNaN(stressVal) && stressVal >= 0 && stressVal <= 100) {
+                                if (!dailyData[dateOnly].hourlyStress[hour]) dailyData[dateOnly].hourlyStress[hour] = [];
+                                dailyData[dateOnly].hourlyStress[hour].push(stressVal);
+                                dailyData[dateOnly].allStress.push(stressVal);
+                                anyValid = true;
+                            }
+                        }
+
+                        // Handle blood pressure (systolic/diastolic)
+                        let systolic = undefined;
+                        let diastolic = undefined;
+
+                        if (parsed.systolic !== undefined) systolic = parseFloat(parsed.systolic);
+                        if (parsed.diastolic !== undefined) diastolic = parseFloat(parsed.diastolic);
+                        if (systolic === undefined && parsed.sbp !== undefined) systolic = parseFloat(parsed.sbp);
+                        if (diastolic === undefined && parsed.dbp !== undefined) diastolic = parseFloat(parsed.dbp);
+                        if (systolic === undefined && parsed.sys !== undefined) systolic = parseFloat(parsed.sys);
+                        if (diastolic === undefined && parsed.dia !== undefined) diastolic = parseFloat(parsed.dia);
+
+                        // bp as string "120/80"
+                        if ((systolic === undefined || diastolic === undefined) && parsed.bp !== undefined) {
+                            const parts = ('' + parsed.bp).split('/');
+                            if (parts.length === 2) {
+                                const s = parseFloat(parts[0]);
+                                const d = parseFloat(parts[1]);
+                                if (!isNaN(s) && !isNaN(d)) {
+                                    systolic = s;
+                                    diastolic = d;
+                                }
+                            }
+                        }
+
+                        // Validate ranges (systolic 50-250, diastolic 30-170)
+                        if (systolic !== undefined && diastolic !== undefined) {
+                            if (!isNaN(systolic) && !isNaN(diastolic) && systolic >= 50 && systolic <= 250 && diastolic >= 30 && diastolic <= 170) {
+                                if (!dailyData[dateOnly].hourlyPressure[hour]) dailyData[dateOnly].hourlyPressure[hour] = [];
+                                dailyData[dateOnly].hourlyPressure[hour].push({ systolic: Math.round(systolic), diastolic: Math.round(diastolic) });
+                                dailyData[dateOnly].allSystolic.push(Math.round(systolic));
+                                dailyData[dateOnly].allDiastolic.push(Math.round(diastolic));
+                                anyValid = true;
+                            }
+                        }
+
+                        if (anyValid) totalParsed++;
+                    }
+                }
+            } catch (e) {
+                // Skip invalid lines silently
+            }
+        }
+
+        if (totalParsed === 0) {
+            return res.status(400).json({ success: false, message: 'No valid records found in CSV file' });
+        }
+
+        // Convert to aggregated documents for heartrate, stress and pressure
+        let hrInserted = 0, hrUpdated = 0;
+        let stressInserted = 0, stressUpdated = 0;
+        let pressureInserted = 0, pressureUpdated = 0;
+
+        for (const [date, data] of Object.entries(dailyData)) {
+            // Build hourly summaries (24 hours) for heartrate
+            const hourlyHrStats = [];
+            for (let h = 0; h < 24; h++) {
+                const arr = data.hourlyHr[h] || [];
+                if (arr.length > 0) {
+                    hourlyHrStats.push({
+                        hour: h,
+                        avg: Math.round(arr.reduce((a, b) => a + b, 0) / arr.length),
+                        min: Math.min(...arr),
+                        max: Math.max(...arr),
+                        count: arr.length
+                    });
+                } else {
+                    hourlyHrStats.push({ hour: h, avg: null, min: null, max: null, count: 0 });
+                }
+            }
+
+            const allHr = data.allHr;
+            const dailyHrStats = allHr.length > 0 ? {
+                avg: Math.round(allHr.reduce((a, b) => a + b, 0) / allHr.length),
+                min: Math.min(...allHr),
+                max: Math.max(...allHr),
+                count: allHr.length
+            } : null;
+
+            // Build hourly summaries for stress
+            const hourlyStressStats = [];
+            for (let h = 0; h < 24; h++) {
+                const arr = data.hourlyStress[h] || [];
+                if (arr.length > 0) {
+                    const avgVal = Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
+                    hourlyStressStats.push({ hour: h, avg: avgVal, min: Math.min(...arr), max: Math.max(...arr), count: arr.length });
+                } else {
+                    hourlyStressStats.push({ hour: h, avg: null, min: null, max: null, count: 0 });
+                }
+            }
+
+            const allStress = data.allStress;
+            const dailyStressStats = allStress.length > 0 ? {
+                avg: Math.round(allStress.reduce((a, b) => a + b, 0) / allStress.length),
+                min: Math.min(...allStress),
+                max: Math.max(...allStress),
+                count: allStress.length
+            } : null;
+
+            // Build hourly summaries for pressure
+            const hourlyPressureStats = [];
+            for (let h = 0; h < 24; h++) {
+                const arr = data.hourlyPressure[h] || [];
+                if (arr.length > 0) {
+                    const systolicVals = arr.map(p => p.systolic);
+                    const diastolicVals = arr.map(p => p.diastolic);
+                    hourlyPressureStats.push({
+                        hour: h,
+                        avgSystolic: Math.round(systolicVals.reduce((a, b) => a + b, 0) / systolicVals.length),
+                        minSystolic: Math.min(...systolicVals),
+                        maxSystolic: Math.max(...systolicVals),
+                        avgDiastolic: Math.round(diastolicVals.reduce((a, b) => a + b, 0) / diastolicVals.length),
+                        minDiastolic: Math.min(...diastolicVals),
+                        maxDiastolic: Math.max(...diastolicVals),
+                        count: arr.length
+                    });
+                } else {
+                    hourlyPressureStats.push({ hour: h, avgSystolic: null, minSystolic: null, maxSystolic: null, avgDiastolic: null, minDiastolic: null, maxDiastolic: null, count: 0 });
+                }
+            }
+
+            const allSystolic = data.allSystolic;
+            const allDiastolic = data.allDiastolic;
+            const dailyPressureStats = allSystolic.length > 0 && allDiastolic.length > 0 ? {
+                avgSystolic: Math.round(allSystolic.reduce((a, b) => a + b, 0) / allSystolic.length),
+                minSystolic: Math.min(...allSystolic),
+                maxSystolic: Math.max(...allSystolic),
+                avgDiastolic: Math.round(allDiastolic.reduce((a, b) => a + b, 0) / allDiastolic.length),
+                minDiastolic: Math.min(...allDiastolic),
+                maxDiastolic: Math.max(...allDiastolic),
+                count: allSystolic.length
+            } : null;
+
+            // Upsert heartrate_daily
+            if (dailyHrStats) {
+                const existingHr = await db.collection("heartrate_daily").findOne({ userId: userIdObj, date: date });
+                if (existingHr) {
+                    await db.collection("heartrate_daily").updateOne(
+                        { _id: existingHr._id },
+                        { $set: { hourlyData: hourlyHrStats, dailyStats: dailyHrStats, updatedAt: new Date() } }
+                    );
+                    hrUpdated++;
+                } else {
+                    await db.collection("heartrate_daily").insertOne({
+                        userId: userIdObj,
+                        userEmail: userEmail,
+                        date: date,
+                        hourlyData: hourlyHrStats,
+                        dailyStats: dailyHrStats,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    });
+                    hrInserted++;
+                }
+            }
+
+            // Upsert stress_daily
+            if (dailyStressStats) {
+                const existingStress = await db.collection("stress_daily").findOne({ userId: userIdObj, date: date });
+                if (existingStress) {
+                    await db.collection("stress_daily").updateOne(
+                        { _id: existingStress._id },
+                        { $set: { hourlyData: hourlyStressStats, dailyStats: dailyStressStats, updatedAt: new Date() } }
+                    );
+                    stressUpdated++;
+                } else {
+                    await db.collection("stress_daily").insertOne({
+                        userId: userIdObj,
+                        userEmail: userEmail,
+                        date: date,
+                        hourlyData: hourlyStressStats,
+                        dailyStats: dailyStressStats,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    });
+                    stressInserted++;
+                }
+            }
+
+            // Upsert pressure_daily
+            if (dailyPressureStats) {
+                const existingPressure = await db.collection("pressure_daily").findOne({ userId: userIdObj, date: date });
+                if (existingPressure) {
+                    await db.collection("pressure_daily").updateOne(
+                        { _id: existingPressure._id },
+                        { $set: { hourlyData: hourlyPressureStats, dailyStats: dailyPressureStats, updatedAt: new Date() } }
+                    );
+                    pressureUpdated++;
+                } else {
+                    await db.collection("pressure_daily").insertOne({
+                        userId: userIdObj,
+                        userEmail: userEmail,
+                        date: date,
+                        hourlyData: hourlyPressureStats,
+                        dailyStats: dailyPressureStats,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    });
+                    pressureInserted++;
+                }
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'CSV data uploaded successfully',
+            data: {
+                userId: userId,
+                userEmail: userEmail,
+                totalRecordsParsed: totalParsed,
+                heartRate: {
+                    inserted: hrInserted,
+                    updated: hrUpdated,
+                    total: hrInserted + hrUpdated
+                },
+                stress: {
+                    inserted: stressInserted,
+                    updated: stressUpdated,
+                    total: stressInserted + stressUpdated
+                },
+                pressure: {
+                    inserted: pressureInserted,
+                    updated: pressureUpdated,
+                    total: pressureInserted + pressureUpdated
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Admin CSV upload error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error uploading CSV data',
+            error: error.message
+        });
     }
 });
 
