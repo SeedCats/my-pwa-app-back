@@ -285,6 +285,265 @@ router.get('/users/:userId/bmi/stats', ...adminMiddleware, async (req, res) => {
     }
 });
 
+// POST /api/admin/users/:userId/bmi - Admin create new BMI record for user
+router.post('/users/:userId/bmi', ...adminMiddleware, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        if (!validateUserIdParam(userId, res)) return;
+
+        const { weight, height, bmi } = req.body;
+
+        // Validation - weight and height are required
+        if (!weight || !height) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Weight and height are required' 
+            });
+        }
+
+        if (typeof weight !== 'number' || weight <= 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Weight must be a positive number' 
+            });
+        }
+
+        if (typeof height !== 'number' || height <= 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Height must be a positive number' 
+            });
+        }
+
+        const db = await connectToDB();
+        const userIdObj = new ObjectId(userId);
+
+        // Check if user exists
+        const user = await db.collection('user').findOne({ _id: userIdObj });
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
+        }
+
+        // Calculate BMI: weight (kg) / (height (m))^2
+        const calculatedBmi = bmi !== undefined ? bmi : parseFloat((weight / (height * height)).toFixed(2));
+
+        // Create new BMI record
+        const newBmiRecord = {
+            userId: userIdObj,
+            weight: weight,
+            height: height,
+            bmi: calculatedBmi,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        const result = await db.collection('bmiData').insertOne(newBmiRecord);
+
+        if (result.insertedId) {
+            res.status(201).json({ 
+                success: true, 
+                message: 'BMI record created successfully',
+                data: {
+                    id: result.insertedId,
+                    userId: userId,
+                    weight: weight,
+                    height: height,
+                    bmi: calculatedBmi,
+                    createdAt: newBmiRecord.createdAt,
+                    updatedAt: newBmiRecord.updatedAt
+                }
+            });
+        } else {
+            res.status(500).json({ 
+                success: false, 
+                message: 'Failed to create BMI record' 
+            });
+        }
+
+    } catch (error) {
+        console.error('Admin BMI create error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error creating BMI record', 
+            error: error.message 
+        });
+    }
+});
+
+// PUT /api/admin/users/:userId/bmi/:bmiId - Admin update user's BMI record
+router.put('/users/:userId/bmi/:bmiId', ...adminMiddleware, async (req, res) => {
+    try {
+        const { userId, bmiId } = req.params;
+        if (!validateUserIdParam(userId, res)) return;
+        if (!ObjectId.isValid(bmiId)) {
+            return res.status(400).json({ success: false, message: 'Invalid BMI record ID format' });
+        }
+
+        const { weight, height, bmi } = req.body;
+
+        // Validation - at least one field must be provided
+        if (weight === undefined && height === undefined && bmi === undefined) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'At least one field (weight, height, or bmi) must be provided' 
+            });
+        }
+
+        const db = await connectToDB();
+        const userIdObj = new ObjectId(userId);
+        const bmiIdObj = new ObjectId(bmiId);
+
+        // Check if BMI record exists and belongs to the user
+        const existingRecord = await db.collection('bmiData').findOne({ 
+            _id: bmiIdObj, 
+            userId: userIdObj 
+        });
+
+        if (!existingRecord) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'BMI record not found for this user' 
+            });
+        }
+
+        // Prepare update object
+        const updateData = {
+            updatedAt: new Date()
+        };
+
+        // Update weight if provided
+        if (weight !== undefined) {
+            if (typeof weight !== 'number' || weight <= 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Weight must be a positive number' 
+                });
+            }
+            updateData.weight = weight;
+        }
+
+        // Update height if provided
+        if (height !== undefined) {
+            if (typeof height !== 'number' || height <= 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Height must be a positive number' 
+                });
+            }
+            updateData.height = height;
+        }
+
+        // Calculate BMI if both weight and height are available
+        const finalWeight = weight !== undefined ? weight : existingRecord.weight;
+        const finalHeight = height !== undefined ? height : existingRecord.height;
+
+        if (finalWeight && finalHeight) {
+            // BMI = weight (kg) / (height (m))^2
+            const calculatedBmi = parseFloat((finalWeight / (finalHeight * finalHeight)).toFixed(2));
+            updateData.bmi = bmi !== undefined ? bmi : calculatedBmi;
+        } else if (bmi !== undefined) {
+            if (typeof bmi !== 'number' || bmi <= 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'BMI must be a positive number' 
+                });
+            }
+            updateData.bmi = bmi;
+        }
+
+        // Update the record
+        const updateResult = await db.collection('bmiData').updateOne(
+            { _id: bmiIdObj, userId: userIdObj },
+            { $set: updateData }
+        );
+
+        if (updateResult.modifiedCount === 1) {
+            // Fetch the updated record
+            const updatedRecord = await db.collection('bmiData').findOne({ _id: bmiIdObj });
+            
+            res.status(200).json({ 
+                success: true, 
+                message: 'BMI record updated successfully',
+                data: updatedRecord
+            });
+        } else {
+            res.status(500).json({ 
+                success: false, 
+                message: 'Failed to update BMI record' 
+            });
+        }
+
+    } catch (error) {
+        console.error('Admin BMI update error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error updating BMI record', 
+            error: error.message 
+        });
+    }
+});
+
+// DELETE /api/admin/users/:userId/bmi/:bmiId - Admin delete user's BMI record
+router.delete('/users/:userId/bmi/:bmiId', ...adminMiddleware, async (req, res) => {
+    try {
+        const { userId, bmiId } = req.params;
+        if (!validateUserIdParam(userId, res)) return;
+        if (!ObjectId.isValid(bmiId)) {
+            return res.status(400).json({ success: false, message: 'Invalid BMI record ID format' });
+        }
+
+        const db = await connectToDB();
+        const userIdObj = new ObjectId(userId);
+        const bmiIdObj = new ObjectId(bmiId);
+
+        // Check if BMI record exists and belongs to the user
+        const existingRecord = await db.collection('bmiData').findOne({ 
+            _id: bmiIdObj, 
+            userId: userIdObj 
+        });
+
+        if (!existingRecord) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'BMI record not found for this user' 
+            });
+        }
+
+        // Delete the record
+        const deleteResult = await db.collection('bmiData').deleteOne({ 
+            _id: bmiIdObj, 
+            userId: userIdObj 
+        });
+
+        if (deleteResult.deletedCount === 1) {
+            res.status(200).json({ 
+                success: true, 
+                message: 'BMI record deleted successfully',
+                data: {
+                    deletedId: bmiId,
+                    userId: userId
+                }
+            });
+        } else {
+            res.status(500).json({ 
+                success: false, 
+                message: 'Failed to delete BMI record' 
+            });
+        }
+
+    } catch (error) {
+        console.error('Admin BMI delete error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Error deleting BMI record', 
+            error: error.message 
+        });
+    }
+});
+
 // GET /api/admin/users/:id - Admin get user by ID (no password/token)
 router.get('/users/:id', ...adminMiddleware, async (req, res) => {
     try {
