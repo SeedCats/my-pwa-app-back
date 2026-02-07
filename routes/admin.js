@@ -342,6 +342,10 @@ router.get('/users/:userId/status', ...adminMiddleware, async (req, res) => {
             if (updateResult.modifiedCount > 0) {
                 user.status = 'On-going';
                 user.statusUpdatedAt = now;
+            } else {
+                // If update failed, return default values without persisting
+                user.status = 'On-going';
+                user.statusUpdatedAt = now;
             }
         }
 
