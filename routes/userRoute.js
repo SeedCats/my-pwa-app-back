@@ -104,6 +104,8 @@ router.post('/user/register', async (req, res) => {
             email: email,
             password: password, // In production, hash this password
             role: 'user',
+            status: 'On-going',
+            statusUpdatedAt: new Date(),
             ...(assignedProviderId ? { providerId: assignedProviderId, providerName: assignedProviderName } : {}),
             token: "", // Initialize empty token
             createdAt: new Date(),
@@ -140,6 +142,7 @@ router.post('/user/register', async (req, res) => {
                         name: name,
                         email: email,
                         role: 'user',
+                        status: 'On-going',
                         providerId: assignedProviderId ? assignedProviderId.toString() : null,
                         providerName: assignedProviderName
                     },

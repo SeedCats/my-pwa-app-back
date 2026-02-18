@@ -2,8 +2,6 @@ const express = require('express');
 const { connectToDB, ObjectId } = require('../config/db.js');
 const { authenticate } = require('../config/auth.js');
 const multer = require('multer');
-const csvParser = require('csv-parser');
-const { Readable } = require('stream');
 
 const router = express.Router();
 
