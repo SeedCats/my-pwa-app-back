@@ -12,6 +12,31 @@ const COOKIE_MAX_AGE = {
   DEFAULT: 24 * 60 * 60 * 1000         // 1 day
 };
 
+const getCookieOptions = (req, remember = false) => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    const useSecureCookie = isProduction || isHttps;
+
+    return {
+        httpOnly: true,
+        secure: useSecureCookie,
+        sameSite: useSecureCookie ? 'none' : 'lax',
+        maxAge: remember ? COOKIE_MAX_AGE.REMEMBER : COOKIE_MAX_AGE.DEFAULT
+    };
+};
+
+const getClearCookieOptions = (req) => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    const useSecureCookie = isProduction || isHttps;
+
+    return {
+        httpOnly: true,
+        secure: useSecureCookie,
+        sameSite: useSecureCookie ? 'none' : 'lax'
+    };
+};
+
 // Validation helpers
 const validateEmail = (email) => EMAIL_REGEX.test(email);
 const validatePassword = (password) => password && password.length >= MIN_PASSWORD_LENGTH;
@@ -92,12 +117,7 @@ router.post('/user/register', async (req, res) => {
             const token = await generateToken({ _id: result.insertedId, email: email, role: newUser.role });
 
             // Set HttpOnly cookie (same as login)
-            res.cookie('token', token, {
-                httpOnly: true,
-                secure: true,
-                sameSite: 'none',
-                maxAge: COOKIE_MAX_AGE.DEFAULT
-            });
+            res.cookie('token', token, getCookieOptions(req));
 
             // If an admin provider was assigned, add this user's id to that admin's UserList
             if (assignedProviderId) {
@@ -443,11 +463,7 @@ router.put('/user/password', authenticate, async (req, res) => {
 
         if (updateResult.modifiedCount === 1) {
             // Clear the HttpOnly cookie
-            res.clearCookie('token', {
-                httpOnly: true,
-                secure: true,
-                sameSite: 'none'
-            });
+            res.clearCookie('token', getClearCookieOptions(req));
 
             res.status(200).json({
                 success: true,
@@ -511,12 +527,7 @@ router.post('/login', async (req, res) => {
         const token = await generateToken({ _id: user._id, email: user.email, role: user.role || 'user' });
 
         // Set HttpOnly cookie with appropriate expiration
-        res.cookie('token', token, {
-            httpOnly: true,
-            secure: true,
-            sameSite: 'none',
-            maxAge: remember ? COOKIE_MAX_AGE.REMEMBER : COOKIE_MAX_AGE.DEFAULT
-        });
+        res.cookie('token', token, getCookieOptions(req, Boolean(remember)));
 
         res.status(200).json({
             success: true,
@@ -563,11 +574,7 @@ router.post('/logout', authenticate, async (req, res) => {
         await removeToken(token);
 
         // Clear the HttpOnly cookie
-        res.clearCookie('token', {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict'
-        });
+        res.clearCookie('token', getClearCookieOptions(req));
 
         res.status(200).json({
             success: true,

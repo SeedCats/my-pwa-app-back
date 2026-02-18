@@ -14,47 +14,59 @@ router.get('/unread', authenticate, checkRole(['admin']), async (req, res) => {
         const providerId = new ObjectId(req.user._id);
         const db = await connectToDB();
 
-        // Use aggregation to count total unread messages across all conversations for this provider
         const aggregationResult = await db.collection('userChat').aggregate([
-            // Filter by provider
             { $match: { providerId: providerId } },
-            // Unwind messages array to process individual messages
             { $unwind: "$messages" },
-            // Filter unread messages sent TO this provider
             { $match: { "messages.receiverId": providerId, "messages.read": false } },
-            // Group by provider to get total count
-            { 
-                $group: { 
-                    _id: "$providerId", 
-                    totalUnread: { $sum: 1 },
-                    // Also collect per-user counts
-                    senders: { $push: "$messages.senderId" } 
-                } 
+            { $sort: { "messages.createdAt": -1 } },   // newest first
+            {
+                $group: {
+                    _id: "$providerId",
+                    count: { $sum: 1 },                // ← was totalUnread, now "count"
+                    lastMessage: { $first: "$messages" }, // ← newest unread message
+                    senders: { $push: "$messages.senderId" }
+                }
             }
         ]).toArray();
 
-        let totalUnread = 0;
+        let count = 0;
+        let lastMessage = null;
+        let senderName = '';
         let unreadByUsers = [];
 
         if (aggregationResult.length > 0) {
-            totalUnread = aggregationResult[0].totalUnread;
-            
-            // Calculate per-user counts from the senders array
+            count = aggregationResult[0].count;
+            const rawMsg = aggregationResult[0].lastMessage;
+
+            // Resolve sender name from user collection
+            const senderDoc = await db.collection('user').findOne(
+                { _id: rawMsg.senderId },
+                { projection: { name: 1 } }
+            );
+            senderName = senderDoc?.name || '';
+
+            lastMessage = {
+                text: rawMsg.text,
+                senderName: senderName,
+                createdAt: rawMsg.createdAt
+            };
+
             const senderCounts = {};
             aggregationResult[0].senders.forEach(senderId => {
                 const idStr = senderId.toString();
                 senderCounts[idStr] = (senderCounts[idStr] || 0) + 1;
             });
-
             unreadByUsers = Object.keys(senderCounts).map(userId => ({
-                userId: userId,
+                userId,
                 count: senderCounts[userId]
             }));
         }
 
         res.json({
             success: true,
-            totalUnread,
+            count,          // ← frontend reads this
+            lastMessage,    // ← frontend reads lastMessage.text / .senderName / .createdAt
+            senderName,
             unreadByUsers
         });
 
