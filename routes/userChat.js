@@ -37,10 +37,10 @@ router.get('/history', authenticate, async (req, res) => {
                     userId: userId,
                     providerId: providerId,
                     "messages.receiverId": userId,
-                    "messages.read": false
+                    "messages.userRead": false
                 },
-                { $set: { "messages.$[elem].read": true } },
-                { arrayFilters: [{ "elem.receiverId": userId, "elem.read": false }] }
+                { $set: { "messages.$[elem].userRead": true } },
+                { arrayFilters: [{ "elem.receiverId": userId, "elem.userRead": false }] }
             );
         }
 
@@ -60,6 +60,8 @@ router.get('/history', authenticate, async (req, res) => {
             receiverId: msg.receiverId,
             createdAt: msg.createdAt,
             isUser: msg.senderId.toString() === userId.toString(),
+            userRead: msg.userRead,
+            adminRead: msg.adminRead,
 
             // Format time as YYYY/MM/DD HH:mm for frontend compatibility
             time: new Date(msg.createdAt).toLocaleString('ja-JP', {
@@ -95,7 +97,7 @@ router.get('/unread', authenticate, async (req, res) => {
         const result = await db.collection('userChat').aggregate([
             { $match: { userId: userId } }, // Find the user's conversation
             { $unwind: "$messages" },
-            { $match: { "messages.receiverId": userId, "messages.read": false } },
+            { $match: { "messages.receiverId": userId, "messages.userRead": false } },
             { $project: { message: "$messages" } },
             { $sort: { "message.createdAt": -1 } }
         ]).toArray();
@@ -153,7 +155,8 @@ router.post('/send', authenticate, async (req, res) => {
             receiverId: providerId,
             text: text.trim(),
             createdAt: new Date(),
-            read: false
+            userRead: true,
+            adminRead: false
         };
 
         // Update existing conversation or insert new one

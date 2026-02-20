@@ -17,7 +17,7 @@ router.get('/unread', authenticate, checkRole(['admin']), async (req, res) => {
         const aggregationResult = await db.collection('userChat').aggregate([
             { $match: { providerId: providerId } },
             { $unwind: "$messages" },
-            { $match: { "messages.receiverId": providerId, "messages.read": false } },
+            { $match: { "messages.receiverId": providerId, "messages.adminRead": false } },
             { $sort: { "messages.createdAt": -1 } },   // newest first
             {
                 $group: {
@@ -98,12 +98,12 @@ const getHistoryHandler = async (req, res) => {
             { 
                 userId: userId, 
                 providerId: providerId,
-                "messages.read": false,
+                "messages.adminRead": false,
                 "messages.receiverId": providerId
             },
-            { $set: { "messages.$[elem].read": true } },
+            { $set: { "messages.$[elem].adminRead": true } },
             { 
-                arrayFilters: [ { "elem.receiverId": providerId, "elem.read": false } ]
+                arrayFilters: [ { "elem.receiverId": providerId, "elem.adminRead": false } ]
             }
         );
 
@@ -123,7 +123,8 @@ const getHistoryHandler = async (req, res) => {
             createdAt: msg.createdAt,
             isUser: msg.senderId.toString() === userIdString, 
             isAdmin: msg.senderId.toString() === providerId.toString(),
-            read: msg.read,
+            userRead: msg.userRead,
+            adminRead: msg.adminRead,
             time: new Date(msg.createdAt).toLocaleString('ja-JP', {
                 year: 'numeric',
                 month: '2-digit',
@@ -178,7 +179,8 @@ router.post('/send', authenticate, checkRole(['admin']), async (req, res) => {
             receiverId: receiverId,
             text: text.trim(),
             createdAt: new Date(),
-            read: false
+            userRead: false,
+            adminRead: true
         };
 
         const result = await db.collection('userChat').updateOne(
@@ -254,7 +256,7 @@ router.get('/users', authenticate, checkRole(['admin']), async (req, res) => {
             
             // Count unread messages in this conversation
             const unreadCount = conv.messages
-                ? conv.messages.filter(m => m.receiverId.toString() === providerId.toString() && !m.read).length
+                ? conv.messages.filter(m => m.receiverId.toString() === providerId.toString() && !m.adminRead).length
                 : 0;
 
             if (!lastMsg) return null; // Skip empty conversations if desired
