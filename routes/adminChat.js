@@ -114,6 +114,12 @@ const getHistoryHandler = async (req, res) => {
 
         const messages = conversation ? conversation.messages : [];
 
+        // Fetch user details (name, email) to display in the chat room header
+        const userDetails = await db.collection('user').findOne(
+            { _id: userId },
+            { projection: { name: 1, email: 1 } }
+        );
+
         // Transform messages
         const formattedMessages = messages.map(msg => ({
             id: msg.id || msg._id,
@@ -136,6 +142,8 @@ const getHistoryHandler = async (req, res) => {
 
         res.json({
             success: true,
+            userName: userDetails?.name || 'Unknown User',
+            userEmail: userDetails?.email || '',
             messages: formattedMessages
         });
 
