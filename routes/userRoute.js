@@ -108,6 +108,7 @@ router.post('/user/register', async (req, res) => {
             statusUpdatedAt: new Date(),
             ...(assignedProviderId ? { providerId: assignedProviderId, providerName: assignedProviderName } : {}),
             token: "", // Initialize empty token
+            icon: "", // Initialize empty icon
             createdAt: new Date(),
             updatedAt: new Date()
         };
@@ -143,6 +144,7 @@ router.post('/user/register', async (req, res) => {
                         email: email,
                         role: 'user',
                         status: 'On-going',
+                        icon: "",
                         providerId: assignedProviderId ? assignedProviderId.toString() : null,
                         providerName: assignedProviderName
                     },
@@ -191,6 +193,7 @@ router.get('/admin/assigned-users', authenticate, checkRole(['admin']), async (r
             name: u.name,
             email: u.email,
             role: u.role,
+            icon: u.icon || "",
             providerId: u.providerId ? u.providerId.toString() : null,
             createdAt: u.createdAt,
             updatedAt: u.updatedAt
@@ -305,18 +308,18 @@ router.delete('/user/delete', authenticate, async (req, res) => {
     }
 });
 
-// PUT /api/user/profile - Update user profile (name and email only)
+// PUT /api/user/profile - Update user profile (name, email, and icon)
 router.put('/user/profile', authenticate, async (req, res) => {
     try {
         console.log('Profile update attempt for user:', req.user.email);
 
-        const { name, email } = req.body;
+        const { name, email, icon } = req.body;
 
         // Validation
-        if (!name && !email) {
+        if (!name && !email && icon === undefined) {
             return res.status(400).json({
                 success: false,
-                message: 'At least one field (name or email) is required to update'
+                message: 'At least one field (name, email, or icon) is required to update'
             });
         }
 
@@ -363,13 +366,24 @@ router.put('/user/profile', authenticate, async (req, res) => {
             updateData.email = email.toLowerCase();
         }
 
+        if (icon !== undefined) {
+            // Basic validation to ensure it's a base64 image string if not empty
+            if (icon !== "" && !icon.startsWith('data:image/')) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid image format. Must be a base64 encoded image.'
+                });
+            }
+            updateData.icon = icon;
+        }
+
         // Update user profile
         const updateResult = await db.collection("user").updateOne(
             { _id: new ObjectId(req.user._id) },
             { $set: updateData }
         );
 
-        if (updateResult.modifiedCount === 1) {
+        if (updateResult.modifiedCount === 1 || updateResult.matchedCount === 1) {
             // Get updated user data
             const updatedUser = await db.collection("user").findOne(
                 { _id: new ObjectId(req.user._id) },
@@ -385,6 +399,7 @@ router.put('/user/profile', authenticate, async (req, res) => {
                         name: updatedUser.name,
                         email: updatedUser.email,
                         role: updatedUser.role,
+                        icon: updatedUser.icon,
                         updatedAt: updatedUser.updatedAt
                     }
                 }
@@ -401,6 +416,97 @@ router.put('/user/profile', authenticate, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error updating profile',
+            error: error.message
+        });
+    }
+});
+
+// PUT /api/user/icon - Update user icon
+router.put('/user/icon', authenticate, async (req, res) => {
+    try {
+        const { icon } = req.body;
+
+        if (!icon) {
+            return res.status(400).json({
+                success: false,
+                message: 'Icon data is required'
+            });
+        }
+
+        // Basic validation to ensure it's a base64 image string
+        if (!icon.startsWith('data:image/')) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid image format. Must be a base64 encoded image.'
+            });
+        }
+
+        const db = await connectToDB();
+
+        const updateResult = await db.collection("user").updateOne(
+            { _id: new ObjectId(req.user._id) },
+            { 
+                $set: { 
+                    icon: icon,
+                    updatedAt: new Date()
+                } 
+            }
+        );
+
+        if (updateResult.modifiedCount === 1 || updateResult.matchedCount === 1) {
+            res.status(200).json({
+                success: true,
+                message: 'Icon updated successfully',
+                data: { icon: icon }
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: 'Failed to update icon'
+            });
+        }
+    } catch (error) {
+        console.error('Icon update error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating icon',
+            error: error.message
+        });
+    }
+});
+
+// DELETE /api/user/icon - Remove user icon
+router.delete('/user/icon', authenticate, async (req, res) => {
+    try {
+        const db = await connectToDB();
+
+        const updateResult = await db.collection("user").updateOne(
+            { _id: new ObjectId(req.user._id) },
+            { 
+                $set: { 
+                    icon: "",
+                    updatedAt: new Date()
+                } 
+            }
+        );
+
+        if (updateResult.modifiedCount === 1 || updateResult.matchedCount === 1) {
+            res.status(200).json({
+                success: true,
+                message: 'Icon removed successfully',
+                data: { icon: "" }
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: 'Failed to remove icon'
+            });
+        }
+    } catch (error) {
+        console.error('Icon removal error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error removing icon',
             error: error.message
         });
     }
@@ -539,7 +645,8 @@ router.post('/login', async (req, res) => {
                     id: user._id,
                     name: user.name,
                     email: user.email,
-                    role: user.role || 'user'
+                    role: user.role || 'user',
+                    icon: user.icon || ""
                 },
                 token: token
             }
@@ -605,6 +712,7 @@ router.get('/user/me', authenticate, async (req, res) => {
                     name: req.user.name,
                     email: req.user.email,
                     role: req.user.role || 'user',
+                    icon: req.user.icon || "",
                     providerId: req.user.providerId ? req.user.providerId.toString() : null,
                     providerName: req.user.providerName || null
                 }
@@ -652,6 +760,7 @@ router.get('/user/:id', authenticate, async (req, res) => {
                     name: user.name,
                     email: user.email,
                     role: user.role || 'user',
+                    icon: user.icon || "",
                     providerId: user.providerId ? user.providerId.toString() : null,
                     createdAt: user.createdAt,
                     updatedAt: user.updatedAt
