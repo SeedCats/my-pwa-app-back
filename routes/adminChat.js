@@ -116,6 +116,13 @@ const getHistoryHandler = async (req, res) => {
 
         const messages = conversation ? conversation.messages : [];
 
+        // Fetch receiver's icon (the user)
+        const userDoc = await db.collection('user').findOne(
+            { _id: userId },
+            { projection: { icon: 1 } }
+        );
+        const icon = userDoc ? userDoc.icon : null;
+
         // Transform messages
         const formattedMessages = messages.map(msg => {
             const formattedMsg = {
@@ -150,7 +157,8 @@ const getHistoryHandler = async (req, res) => {
 
         res.json({
             success: true,
-            messages: formattedMessages
+            messages: formattedMessages,
+            icon: icon
         });
 
     } catch (error) {
@@ -278,7 +286,7 @@ router.get('/users', authenticate, checkRole(['admin']), async (req, res) => {
             // Get user details
             const userDetails = await db.collection('user').findOne(
                 { _id: userId },
-                { projection: { name: 1, email: 1 } }
+                { projection: { name: 1, email: 1, icon: 1 } }
             );
 
             // Get last message in array
@@ -297,6 +305,7 @@ router.get('/users', authenticate, checkRole(['admin']), async (req, res) => {
                 userId: userId,
                 name: userDetails ? userDetails.name : 'Unknown User',
                 email: userDetails ? userDetails.email : '',
+                icon: userDetails ? userDetails.icon : null,
                 lastMessage: lastMsg.text,
                 lastMessageTime: lastMsg.createdAt,
                 unreadCount: unreadCount

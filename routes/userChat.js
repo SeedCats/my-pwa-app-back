@@ -54,6 +54,13 @@ router.get('/history', authenticate, async (req, res) => {
         
         const messages = conversation ? conversation.messages : [];
 
+        // Fetch receiver's icon (the provider)
+        const providerDoc = await db.collection('user').findOne(
+            { _id: providerId },
+            { projection: { icon: 1 } }
+        );
+        const receiverIcon = providerDoc ? providerDoc.icon : null;
+
         // Transform messages for frontend consumption
         const formattedMessages = messages.map(msg => {
             const formattedMsg = {
@@ -89,7 +96,8 @@ router.get('/history', authenticate, async (req, res) => {
 
         res.json({
             success: true,
-            messages: formattedMessages
+            messages: formattedMessages,
+            receiverIcon: receiverIcon
         });
 
     } catch (error) {
