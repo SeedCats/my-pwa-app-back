@@ -1,8 +1,10 @@
 const express = require('express');
+const multer = require('multer');
 const { connectToDB, ObjectId } = require('../config/db.js');
 const { authenticate } = require('../config/auth.js');
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
 /**
  * GET /api/user-chat/history
@@ -53,25 +55,37 @@ router.get('/history', authenticate, async (req, res) => {
         const messages = conversation ? conversation.messages : [];
 
         // Transform messages for frontend consumption
-        const formattedMessages = messages.map(msg => ({
-            id: msg._id || msg.id, // Handle both existing ObjectId/string ID or new one
-            text: msg.text,
-            senderId: msg.senderId,
-            receiverId: msg.receiverId,
-            createdAt: msg.createdAt,
-            isUser: msg.senderId.toString() === userId.toString(),
-            userRead: msg.userRead,
-            adminRead: msg.adminRead,
+        const formattedMessages = messages.map(msg => {
+            const formattedMsg = {
+                id: msg._id || msg.id, // Handle both existing ObjectId/string ID or new one
+                text: msg.text,
+                senderId: msg.senderId,
+                receiverId: msg.receiverId,
+                createdAt: msg.createdAt,
+                isUser: msg.senderId.toString() === userId.toString(),
+                userRead: msg.userRead,
+                adminRead: msg.adminRead,
 
-            // Format time as YYYY/MM/DD HH:mm for frontend compatibility
-            time: new Date(msg.createdAt).toLocaleString('ja-JP', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            })
-        }));
+                // Format time as YYYY/MM/DD HH:mm for frontend compatibility
+                time: new Date(msg.createdAt).toLocaleString('ja-JP', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                })
+            };
+
+            if (msg.file) {
+                formattedMsg.file = {
+                    originalName: msg.file.originalName,
+                    contentType: msg.file.contentType,
+                    size: msg.file.size
+                };
+            }
+
+            return formattedMsg;
+        });
 
         res.json({
             success: true,
@@ -128,12 +142,13 @@ router.get('/unread', authenticate, async (req, res) => {
  * POST /api/user-chat/send
  * Send a message to the healthcare provider
  */
-router.post('/send', authenticate, async (req, res) => {
+router.post('/send', authenticate, upload.single('file'), async (req, res) => {
     try {
         const { text } = req.body;
+        const file = req.file;
         
-        if (!text || !text.trim()) {
-            return res.status(400).json({ success: false, message: "Message text is required" });
+        if ((!text || !text.trim()) && !file) {
+            return res.status(400).json({ success: false, message: "Message text or file is required" });
         }
 
         const userId = new ObjectId(req.user._id);
@@ -153,11 +168,20 @@ router.post('/send', authenticate, async (req, res) => {
             id: messageId, // Store explicit ID in the object within array
             senderId: userId,
             receiverId: providerId,
-            text: text.trim(),
+            text: text ? text.trim() : "",
             createdAt: new Date(),
             userRead: true,
             adminRead: false
         };
+
+        if (file) {
+            newMessage.file = {
+                data: file.buffer,
+                contentType: file.mimetype,
+                originalName: file.originalname,
+                size: file.size
+            };
+        }
 
         // Update existing conversation or insert new one
         await db.collection('userChat').updateOne(
@@ -194,6 +218,14 @@ router.post('/send', authenticate, async (req, res) => {
             })
         };
 
+        if (file) {
+            formattedMessage.file = {
+                originalName: file.originalname,
+                contentType: file.mimetype,
+                size: file.size
+            };
+        }
+
         res.status(201).json({
             success: true,
             message: formattedMessage
@@ -201,6 +233,47 @@ router.post('/send', authenticate, async (req, res) => {
 
     } catch (error) {
         console.error('Error sending message:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+/**
+ * GET /api/user-chat/file/:messageId
+ * Download a file attached to a message
+ */
+router.get('/file/:messageId', authenticate, async (req, res) => {
+    try {
+        const messageId = new ObjectId(req.params.messageId);
+        const userId = new ObjectId(req.user._id);
+        const providerId = req.user.providerId ? new ObjectId(req.user.providerId) : null;
+
+        const db = await connectToDB();
+
+        // Find the conversation containing the message
+        const conversation = await db.collection('userChat').findOne({
+            userId: userId,
+            providerId: providerId,
+            "messages.id": messageId
+        });
+
+        if (!conversation) {
+            return res.status(404).json({ success: false, message: "Message not found" });
+        }
+
+        const message = conversation.messages.find(msg => msg.id.toString() === messageId.toString());
+
+        if (!message || !message.file) {
+            return res.status(404).json({ success: false, message: "File not found" });
+        }
+
+        const encodedFileName = encodeURIComponent(message.file.originalName);
+
+        res.set('Content-Type', message.file.contentType);
+        res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodedFileName}`);
+        res.send(message.file.data.buffer || message.file.data);
+
+    } catch (error) {
+        console.error('Error downloading file:', error);
         res.status(500).json({ success: false, message: 'Server error' });
     }
 });

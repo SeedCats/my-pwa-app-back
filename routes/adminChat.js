@@ -1,8 +1,10 @@
 const express = require('express');
+const multer = require('multer');
 const { connectToDB, ObjectId } = require('../config/db.js');
 const { authenticate, checkRole } = require('../config/auth.js');
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
 /**
  * GET /api/admin-chat/unread
@@ -115,24 +117,36 @@ const getHistoryHandler = async (req, res) => {
         const messages = conversation ? conversation.messages : [];
 
         // Transform messages
-        const formattedMessages = messages.map(msg => ({
-            id: msg.id || msg._id,
-            text: msg.text,
-            senderId: msg.senderId,
-            receiverId: msg.receiverId,
-            createdAt: msg.createdAt,
-            isUser: msg.senderId.toString() === userIdString, 
-            isAdmin: msg.senderId.toString() === providerId.toString(),
-            userRead: msg.userRead,
-            adminRead: msg.adminRead,
-            time: new Date(msg.createdAt).toLocaleString('ja-JP', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            })
-        }));
+        const formattedMessages = messages.map(msg => {
+            const formattedMsg = {
+                id: msg.id || msg._id,
+                text: msg.text,
+                senderId: msg.senderId,
+                receiverId: msg.receiverId,
+                createdAt: msg.createdAt,
+                isUser: msg.senderId.toString() === userIdString, 
+                isAdmin: msg.senderId.toString() === providerId.toString(),
+                userRead: msg.userRead,
+                adminRead: msg.adminRead,
+                time: new Date(msg.createdAt).toLocaleString('ja-JP', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                })
+            };
+
+            if (msg.file) {
+                formattedMsg.file = {
+                    originalName: msg.file.originalName,
+                    contentType: msg.file.contentType,
+                    size: msg.file.size
+                };
+            }
+
+            return formattedMsg;
+        });
 
         res.json({
             success: true,
@@ -153,16 +167,17 @@ router.get('/history', authenticate, checkRole(['admin']), getHistoryHandler);
  * POST /api/admin-chat/send
  * Send a message from admin to a user
  */
-router.post('/send', authenticate, checkRole(['admin']), async (req, res) => {
+router.post('/send', authenticate, checkRole(['admin']), upload.single('file'), async (req, res) => {
     try {
         const { userId, text } = req.body;
+        const file = req.file;
         
         if (!userId || !ObjectId.isValid(userId)) {
             return res.status(400).json({ success: false, message: "Valid User ID is required" });
         }
         
-        if (!text || !text.trim()) {
-            return res.status(400).json({ success: false, message: "Message text is required" });
+        if ((!text || !text.trim()) && !file) {
+            return res.status(400).json({ success: false, message: "Message text or file is required" });
         }
 
         const providerId = new ObjectId(req.user._id);
@@ -177,11 +192,20 @@ router.post('/send', authenticate, checkRole(['admin']), async (req, res) => {
             id: messageId,
             senderId: senderId,
             receiverId: receiverId,
-            text: text.trim(),
+            text: text ? text.trim() : "",
             createdAt: new Date(),
             userRead: false,
             adminRead: true
         };
+
+        if (file) {
+            newMessage.file = {
+                data: file.buffer,
+                contentType: file.mimetype,
+                originalName: file.originalname,
+                size: file.size
+            };
+        }
 
         const result = await db.collection('userChat').updateOne(
             { userId: receiverId, providerId: senderId }, // Assuming userId is always the patient/customer
@@ -213,6 +237,14 @@ router.post('/send', authenticate, checkRole(['admin']), async (req, res) => {
                 minute: '2-digit'
             })
         };
+
+        if (file) {
+            formattedMessage.file = {
+                originalName: file.originalname,
+                contentType: file.mimetype,
+                size: file.size
+            };
+        }
 
         res.status(201).json({
             success: true,
@@ -316,6 +348,45 @@ router.delete('/history/:userId', authenticate, checkRole(['admin']), async (req
 
     } catch (error) {
         console.error('Error deleting admin chat history:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+/**
+ * GET /api/admin-chat/file/:messageId
+ * Download a file attached to a message
+ */
+router.get('/file/:messageId', authenticate, checkRole(['admin']), async (req, res) => {
+    try {
+        const messageId = new ObjectId(req.params.messageId);
+        const providerId = new ObjectId(req.user._id);
+
+        const db = await connectToDB();
+
+        // Find the conversation containing the message
+        const conversation = await db.collection('userChat').findOne({
+            providerId: providerId,
+            "messages.id": messageId
+        });
+
+        if (!conversation) {
+            return res.status(404).json({ success: false, message: "Message not found" });
+        }
+
+        const message = conversation.messages.find(msg => msg.id.toString() === messageId.toString());
+
+        if (!message || !message.file) {
+            return res.status(404).json({ success: false, message: "File not found" });
+        }
+
+        const encodedFileName = encodeURIComponent(message.file.originalName);
+
+        res.set('Content-Type', message.file.contentType);
+        res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodedFileName}`);
+        res.send(message.file.data.buffer || message.file.data);
+
+    } catch (error) {
+        console.error('Error downloading file:', error);
         res.status(500).json({ success: false, message: 'Server error' });
     }
 });
