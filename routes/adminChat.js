@@ -287,4 +287,37 @@ router.get('/users', authenticate, checkRole(['admin']), async (req, res) => {
     }
 });
 
+/**
+ * DELETE /api/admin-chat/history/:userId
+ * Delete chat history between the admin and a specific user
+ */
+router.delete('/history/:userId', authenticate, checkRole(['admin']), async (req, res) => {
+    try {
+        const providerId = new ObjectId(req.user._id);
+        const userIdString = req.params.userId;
+
+        if (!userIdString || !ObjectId.isValid(userIdString)) {
+            return res.status(400).json({ success: false, message: 'Invalid or missing user ID' });
+        }
+        
+        const userId = new ObjectId(userIdString);
+        const db = await connectToDB();
+        
+        // Delete the conversation document
+        const result = await db.collection('userChat').deleteOne(
+            { userId: userId, providerId: providerId }
+        );
+
+        if (result.deletedCount === 1) {
+            res.json({ success: true, message: 'Chat history deleted successfully' });
+        } else {
+            res.status(404).json({ success: false, message: 'Chat history not found' });
+        }
+
+    } catch (error) {
+        console.error('Error deleting admin chat history:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
 module.exports = router;
