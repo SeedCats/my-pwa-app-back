@@ -62,6 +62,7 @@ const grokRoutes = require('./routes/grokChat.js');
 const userChatRoutes = require('./routes/userChat.js');
 const adminChatRoutes = require('./routes/adminChat.js');
 const providerRoutes = require('./routes/emailSMTP.js');
+const bookingRoutes = require('./routes/booking.js');
 
 // Root route - shows API is running
 app.get('/', (req, res) => {
@@ -93,6 +94,7 @@ app.use('/api/admin-chat', adminChatRoutes); // For admin chat operations
 app.use('/api/admin/user-chat', adminChatRoutes); // Alias for frontend compatibility
 app.use('/api/user-chat', userChatRoutes);
 app.use('/api/provider', providerRoutes);
+app.use('/api/booking', bookingRoutes);
 
 // Initialize database connection and start server
 async function startServer() {
