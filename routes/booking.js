@@ -5,6 +5,25 @@ const { authenticate, checkRole } = require('../config/auth.js');
 const router = express.Router();
 
 /**
+ * Helper: sync the timeslot booked flag whenever a booking is created or its status changes.
+ * time may be a comma-separated string "09:00, 09:30" — each segment is updated individually.
+ */
+async function syncTimeslotBooked(db, providerId, date, time, booked) {
+    try {
+        const timeList = typeof time === 'string' ? time.split(',').map(t => t.trim()) : [time];
+        for (const t of timeList) {
+            await db.collection('timeslots').updateOne(
+                { providerId: providerId.toString(), date, time: t },
+                { $set: { booked } }
+            );
+        }
+    } catch (err) {
+        // Non-fatal — log and continue so the booking operation still succeeds
+        console.error('syncTimeslotBooked error:', err);
+    }
+}
+
+/**
  * POST /api/booking
  * Create a new appointment
  */
@@ -34,6 +53,9 @@ router.post('/', authenticate, async (req, res) => {
         };
 
         const result = await db.collection('booking').insertOne(newBooking);
+
+        // Mark the corresponding timeslot as booked
+        await syncTimeslotBooked(db, providerID, date, time, true);
 
         res.status(201).json({
             success: true,
@@ -81,6 +103,61 @@ router.get('/', authenticate, async (req, res) => {
     } catch (error) {
         console.error('Error fetching bookings:', error);
         res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+/**
+ * GET /api/booking/booked-slots/:providerId
+ * Returns all taken time slots grouped by date for a given provider.
+ * Must be declared before /:id to avoid Express matching 'booked-slots' as a booking ID.
+ */
+router.get('/booked-slots/:providerId', async (req, res) => {
+    try {
+        const { providerId } = req.params;
+
+        if (!providerId || !ObjectId.isValid(providerId)) {
+            return res.status(400).json({ message: 'Invalid providerId' });
+        }
+
+        const db = await connectToDB();
+
+        const bookings = await db.collection('booking')
+            .find(
+                {
+                    providerID: new ObjectId(providerId),
+                    status: { $nin: ['rejected', 'cancelled'] }
+                },
+                { projection: { _id: 0, date: 1, time: 1 } }
+            )
+            .toArray();
+
+        // Group slots by date
+        const result = {};
+        for (const b of bookings) {
+            if (!b.date || !b.time) continue;
+
+            // Normalise date — handle both string 'YYYY-MM-DD' and Date objects
+            const dateStr = b.date instanceof Date
+                ? b.date.toISOString().slice(0, 10)
+                : b.date;
+
+            if (!result[dateStr]) result[dateStr] = [];
+
+            // Support both single "09:00" and multi-slot "09:00, 09:30" time strings
+            const times = b.time.split(',').map(t => t.trim());
+            result[dateStr].push(...times);
+        }
+
+        // Deduplicate slots per date
+        for (const date in result) {
+            result[date] = [...new Set(result[date])];
+        }
+
+        res.json(result);
+
+    } catch (err) {
+        console.error('Failed to fetch booked slots:', err);
+        res.status(500).json({ message: 'Failed to fetch booked slots', error: err.message });
     }
 });
 
@@ -138,6 +215,15 @@ router.put('/:id', authenticate, async (req, res) => {
             { returnDocument: 'after' }
         );
 
+        // Sync the timeslot booked flag when the booking status changes
+        if (status !== undefined) {
+            const slotDate = updateData.date || existingBooking.date;
+            const slotTime = updateData.time || existingBooking.time;
+            const slotProviderId = (updateData.providerID || existingBooking.providerID).toString();
+            const isActive = !['cancelled', 'rejected'].includes(status);
+            await syncTimeslotBooked(db, slotProviderId, slotDate, slotTime, isActive);
+        }
+
         res.json({
             success: true,
             message: 'Appointment updated successfully',
@@ -183,6 +269,15 @@ router.delete('/:id', authenticate, async (req, res) => {
         }
 
         await db.collection('booking').deleteOne({ _id: new ObjectId(bookingId) });
+
+        // Unmark the timeslot when a booking is deleted
+        await syncTimeslotBooked(
+            db,
+            existingBooking.providerID.toString(),
+            existingBooking.date,
+            existingBooking.time,
+            false
+        );
 
         res.json({
             success: true,
