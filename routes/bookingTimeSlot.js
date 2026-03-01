@@ -20,14 +20,17 @@ router.get('/:providerId', async (req, res) => {
 
         const db = await connectToDB();
 
-        const records = await db
-            .collection('timeslots')
-            .find(
-                { providerId },
-                { projection: { _id: 0, date: 1, time: 1, booked: 1 } }
-            )
-            .sort({ date: 1, time: 1 })
-            .toArray();
+        const doc = await db.collection('timeslots').findOne(
+            { providerId },
+            { projection: { _id: 0, slots: 1 } }
+        );
+
+        const records = (doc?.slots || [])
+            .map(s => ({ date: s.date, time: s.time, booked: !!s.booked }))
+            .sort((a, b) => {
+                if (a.date === b.date) return a.time.localeCompare(b.time);
+                return a.date.localeCompare(b.date);
+            });
 
         res.json({ success: true, slots: records });
 
@@ -46,7 +49,6 @@ router.post('/', authenticate, async (req, res) => {
     try {
         const providerId = req.user._id.toString();
         const incoming = (req.body.slots || []).map(s => ({
-            providerId,
             date: s.date,
             time: s.time,
             booked: false,
@@ -55,12 +57,19 @@ router.post('/', authenticate, async (req, res) => {
 
         const db = await connectToDB();
 
-        // Full replace: remove all existing slots for this provider, then insert the new list
-        await db.collection('timeslots').deleteMany({ providerId });
-
-        if (incoming.length > 0) {
-            await db.collection('timeslots').insertMany(incoming);
-        }
+        // Full replace: keep one document per provider and replace slots array
+        await db.collection('timeslots').updateOne(
+            { providerId },
+            {
+                $set: {
+                    providerId,
+                    slots: incoming,
+                    updatedAt: new Date()
+                },
+                $setOnInsert: { createdAt: new Date() }
+            },
+            { upsert: true }
+        );
 
         res.json({ success: true });
 
@@ -93,21 +102,69 @@ router.patch('/mark-booked', authenticate, async (req, res) => {
         const db = await connectToDB();
 
         // Support comma-separated multi-slot time strings e.g. "09:00, 09:30"
-        const timeList = time.split(',').map(t => t.trim());
+        const timeList = time.split(',').map(t => t.trim()).filter(Boolean);
 
-        let modifiedCount = 0;
-        for (const t of timeList) {
-            const result = await db.collection('timeslots').updateOne(
-                { providerId, date, time: t },
-                { $set: { booked } }
-            );
-            modifiedCount += result.modifiedCount;
-        }
+        const result = await db.collection('timeslots').updateOne(
+            { providerId },
+            {
+                $set: {
+                    'slots.$[slot].booked': booked,
+                    updatedAt: new Date()
+                }
+            },
+            {
+                arrayFilters: [{ 'slot.date': date, 'slot.time': { $in: timeList } }]
+            }
+        );
+
+        const modifiedCount = result.modifiedCount;
 
         res.json({ success: true, modifiedCount });
 
     } catch (err) {
         console.error('Error updating booked flag:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+/**
+ * PATCH /api/bookingTimeSlot/unmark-booked
+ * Explicitly set one or more slots as not booked.
+ *
+ * Body: { providerId, date, time }
+ * Returns: { success: true, modifiedCount }
+ */
+router.patch('/unmark-booked', authenticate, async (req, res) => {
+    try {w
+        const { providerId, date, time } = req.body;
+
+        if (!providerId || !date || !time) {
+            return res.status(400).json({
+                success: false,
+                message: 'providerId, date, and time are required'
+            });
+        }
+
+        const db = await connectToDB();
+        const timeList = time.split(',').map(t => t.trim()).filter(Boolean);
+
+        const result = await db.collection('timeslots').updateOne(
+            { providerId },
+            {
+                $set: {
+                    'slots.$[slot].booked': false,
+                    updatedAt: new Date()
+                }
+            },
+            {
+                arrayFilters: [{ 'slot.date': date, 'slot.time': { $in: timeList } }]
+            }
+        );
+
+        res.json({ success: true, modifiedCount: result.modifiedCount });
+
+    } catch (err) {
+        console.error('Error unmarking booked flag:', err);
         res.status(500).json({ success: false, message: err.message });
     }
 });

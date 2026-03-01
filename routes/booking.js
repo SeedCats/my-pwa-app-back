@@ -10,13 +10,22 @@ const router = express.Router();
  */
 async function syncTimeslotBooked(db, providerId, date, time, booked) {
     try {
-        const timeList = typeof time === 'string' ? time.split(',').map(t => t.trim()) : [time];
-        for (const t of timeList) {
-            await db.collection('timeslots').updateOne(
-                { providerId: providerId.toString(), date, time: t },
-                { $set: { booked } }
-            );
-        }
+        const timeList = typeof time === 'string'
+            ? time.split(',').map(t => t.trim()).filter(Boolean)
+            : [time];
+
+        await db.collection('timeslots').updateOne(
+            { providerId: providerId.toString() },
+            {
+                $set: {
+                    'slots.$[slot].booked': booked,
+                    updatedAt: new Date()
+                }
+            },
+            {
+                arrayFilters: [{ 'slot.date': date, 'slot.time': { $in: timeList } }]
+            }
+        );
     } catch (err) {
         // Non-fatal — log and continue so the booking operation still succeeds
         console.error('syncTimeslotBooked error:', err);
