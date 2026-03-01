@@ -377,18 +377,6 @@ router.put('/user/profile', authenticate, async (req, res) => {
             updateData.icon = icon;
         }
 
-        // address is only valid for admin users
-        const { address } = req.body;
-        if (address !== undefined) {
-            if (req.user.role !== 'admin') {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Address field is only available for admin users'
-                });
-            }
-            updateData.address = address.trim();
-        }
-
         // Update user profile
         const updateResult = await db.collection("user").updateOne(
             { _id: new ObjectId(req.user._id) },
@@ -412,7 +400,6 @@ router.put('/user/profile', authenticate, async (req, res) => {
                         email: updatedUser.email,
                         role: updatedUser.role,
                         icon: updatedUser.icon,
-                        ...(updatedUser.role === 'admin' ? { address: updatedUser.address || "" } : {}),
                         updatedAt: updatedUser.updatedAt
                     }
                 }
@@ -726,7 +713,6 @@ router.get('/user/me', authenticate, async (req, res) => {
                     email: req.user.email,
                     role: req.user.role || 'user',
                     icon: req.user.icon || "",
-                    ...(req.user.role === 'admin' ? { address: req.user.address || "" } : {}),
                     providerId: req.user.providerId ? req.user.providerId.toString() : null,
                     providerName: req.user.providerName || null
                 }
@@ -775,7 +761,6 @@ router.get('/user/:id', authenticate, async (req, res) => {
                     email: user.email,
                     role: user.role || 'user',
                     icon: user.icon || "",
-                    ...(user.role === 'admin' ? { address: user.address || "" } : {}),
                     providerId: user.providerId ? user.providerId.toString() : null,
                     createdAt: user.createdAt,
                     updatedAt: user.updatedAt
