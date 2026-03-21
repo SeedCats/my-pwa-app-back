@@ -24,13 +24,12 @@ const generateToken = async (user) => {
 
     const db = await connectToDB();
     try {
-
         // Save token to database
-        const result = await db.collection("user").updateOne(
+        await db.collection("user").updateOne(
             { _id: new ObjectId(user._id) },
             { $set: { token: token } }
         );
-        
+
         return token;
     } catch (err) {
         console.error('Error updating token:', err);
@@ -145,8 +144,6 @@ const removeToken = async function (token) {
 }
 
 const verifyToken = async function (req, res, next) {
-    console.log("req.user: ", req.user);
-
     let token = extractToken(req);
 
     if (token) {

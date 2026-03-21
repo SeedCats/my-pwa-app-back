@@ -16,24 +16,17 @@ const ALLOWED_ORIGINS = [
 // CORS configuration
 const corsOptions = {
   origin: (origin, callback) => {
-    console.log('Request from origin:', origin);
-    
     // Allow requests with no origin (mobile apps, curl, same-origin)
     if (!origin || ALLOWED_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
-    
-    console.log('CORS blocked origin:', origin);
-    console.log('Allowed origins:', ALLOWED_ORIGINS);
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   exposedHeaders: ['Set-Cookie'],
-  maxAge: 86400, // 24 hours
-  preflightContinue: false,
-  optionsSuccessStatus: 204
+  maxAge: 86400 // 24 hours
 };
 
 app.use(cors(corsOptions));
@@ -44,12 +37,9 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Debug middleware to log all requests
+// Request logging middleware
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  if (req.body && Object.keys(req.body).length > 0) {
-    console.log('Body:', JSON.stringify(req.body, null, 2));
-  }
   next();
 });
 

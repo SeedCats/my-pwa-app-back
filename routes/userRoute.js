@@ -44,8 +44,6 @@ const validatePassword = (password) => password && password.length >= MIN_PASSWO
 // POST /api/register - Register new user
 router.post('/user/register', async (req, res) => {
     try {
-        console.log('Registration attempt:', req.body);
-
         const { name, email, password } = req.body;
 
         // Validation
@@ -311,8 +309,6 @@ router.delete('/user/delete', authenticate, async (req, res) => {
 // PUT /api/user/profile - Update user profile (name, email, and icon)
 router.put('/user/profile', authenticate, async (req, res) => {
     try {
-        console.log('Profile update attempt for user:', req.user.email);
-
         const { name, email, icon } = req.body;
 
         // Validation
@@ -515,8 +511,6 @@ router.delete('/user/icon', authenticate, async (req, res) => {
 // PUT /api/user/password - Update user password only
 router.put('/user/password', authenticate, async (req, res) => {
     try {
-        console.log('Password update attempt for user:', req.user.email);
-
         const { currentPassword, newPassword } = req.body;
 
         // Validation
@@ -602,15 +596,9 @@ router.put('/user/password', authenticate, async (req, res) => {
 // POST /api/login - Log in with token generation and HttpOnly cookie
 router.post('/login', async (req, res) => {
     try {
-        console.log('Login attempt:', req.body);
-        console.log('Request origin:', req.headers.origin);
-        console.log('Request headers:', req.headers);
-
         const { email, password, remember } = req.body;
 
-        // Validation - check if email and password are provided
         if (!email || !password) {
-            console.log('Login failed: Missing email or password');
             return res.status(400).json({
                 success: false,
                 message: 'Email and password are required'
@@ -625,7 +613,6 @@ router.post('/login', async (req, res) => {
         });
 
         if (!user) {
-            console.log('Login failed: User not found with provided credentials');
             return res.status(401).json({
                 success: false,
                 message: 'Login Failed, please check your credentials!'
@@ -665,7 +652,7 @@ router.post('/login', async (req, res) => {
 router.post('/logout', authenticate, async (req, res) => {
     try {
         // Extract token from cookie or header
-        const token = req.cookies.token || 
+        const token = req.cookies.token ||
             (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')
                 ? req.headers.authorization.split(' ')[1]
                 : null);
@@ -676,9 +663,6 @@ router.post('/logout', authenticate, async (req, res) => {
                 message: 'No token provided for logout'
             });
         }
-
-        console.log('Logging out user:', req.user.email);
-        console.log('Removing token for user ID:', req.user._id);
 
         // Remove token from database
         await removeToken(token);

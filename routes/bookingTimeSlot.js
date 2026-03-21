@@ -135,7 +135,7 @@ router.patch('/mark-booked', authenticate, async (req, res) => {
  * Returns: { success: true, modifiedCount }
  */
 router.patch('/unmark-booked', authenticate, async (req, res) => {
-    try {w
+    try {
         const { providerId, date, time } = req.body;
 
         if (!providerId || !date || !time) {

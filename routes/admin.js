@@ -1014,7 +1014,7 @@ router.put('/users/:userId/password', ...adminMiddleware, async (req, res) => {
             });
         }
 
-        // Update password and clear tokens to force re-login
+        // Update password and clear token to force re-login
         const updateResult = await db.collection('user').updateOne(
             { _id: userIdObj },
             { 
@@ -1022,8 +1022,7 @@ router.put('/users/:userId/password', ...adminMiddleware, async (req, res) => {
                     password: newPassword,
                     token: "",
                     updatedAt: new Date()
-                },
-                $unset: { tokens: "" }
+                }
             }
         );
 
@@ -1053,8 +1052,7 @@ router.put('/users/:userId/password', ...adminMiddleware, async (req, res) => {
     }
 });
 
-// ---------------------- STATUS ----------------------
-
+// ---------------------- USER MANAGEMENT ----------------------
 
 // Admin: Update any user's public fields (PUT /api/admin/user/:id)
 router.put('/user/:id', ...adminMiddleware, async (req, res) => {
