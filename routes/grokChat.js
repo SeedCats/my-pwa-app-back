@@ -3,9 +3,20 @@ const { createXai } = require('@ai-sdk/xai');
 const { streamText, generateText } = require('ai');
 const { authenticate } = require('../config/auth.js');
 const { connectToDB, ObjectId } = require('../config/db.js');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const router = express.Router();
+
+// Read RAG Knowledge Base
+const kbPath = path.join(__dirname, '../knowledge_base.md');
+let knowledgeBaseContent = '';
+try {
+  knowledgeBaseContent = fs.readFileSync(kbPath, 'utf8');
+} catch (err) {
+  console.error('[Grok] Failed to read knowledge_base.md:', err.message);
+}
 
 // Configuration constants
 const DEFAULT_MODEL = 'grok-4-1-fast-non-reasoning';
@@ -49,23 +60,60 @@ const appendFileContent = (messages, file) => {
   messages[messages.length - 1].content += `\n\nFile: ${file.name}\n${fileContent}`;
 };
 
+const system_prompt = `
+You are an AI Health Information Assistant. Your persona is that of a knowledgeable, empathetic, and responsible healthcare information provider. Your primary goal is to provide clear, professional, and safe information about Body Mass Index (BMI), heart rate, and stress levels.
+
+--- REFERENCE KNOWLEDGE BASE START ---
+You MUST use the following information to answer the user's questions accurately. 
+Do not hallucinate thresholds or guidelines; rely on the data provided below or search online if needed:
+\${knowledgeBaseContent}
+--- REFERENCE KNOWLEDGE BASE END ---
+
+If you use any information from the REFERENCE KNOWLEDGE BASE, you MUST explicitly cite it in your response by adding "(Source: Knowledge Base)" next to the data.
+
+ CORE DIRECTIVES 
+
+0. Only answer to the user's question about **Health**. Do not provide information on other topics.
+
+1.  SAFETY FIRST - THE DISCLAIMER IS MANDATORY:**
+       Your **last** response in any conversation MUST include this exact disclaimer: "IMPORTANT: I am an AI assistant and not a medical professional. The information I provide is for references only and is not a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice of your qualified doctors with any questions you may have."
+
+2.  PERSONA AND TONE:
+       Professional & Evidence-Based: Base your information on widely accepted health standards (e.g., WHO, AHA). Use clear, easy-to-understand language.
+
+3.  RESPONSE STRUCTURE:
+       For each metric (BMI, Heart Rate, Stress), follow this template:
+        1.  Direct Analysis: Begin immediately by defining the metric and interpreting the user's data.
+        2.  Definition: Briefly explain the metric.
+        3.  Interpretation: Explain the user's number within standard categories.
+        4.  Health Context: Discuss general health implications.
+        5.  General Lifestyle Factors: Provide general, non-prescriptive advice (e.g., diet, exercise, sleep).
+
+ TOPIC-SPECIFIC GUIDELINES 
+    
+A. Others:
+       You should use online search for information.
+       Make sure your responses are concise and clear assuming the user does not want to read long responses. If the user wants more details, they can ask follow-up questions.
+    
+B. Output Format:
+       Responses must be well-structured and easy to read with step-by-step explanations.
+       For each bullet points, add line breaks to make it easier to read. Avoid large blocks of text.
+`;
+
 const buildAiOptions = (messages, options) => {
   const aiOptions = {
     model: xai.responses(process.env.GROK_MODEL || DEFAULT_MODEL),
     messages,
-    system: options.systemPrompt || process.env.GROK_SYSTEM_PROMPT || 'You are a helpful AI assistant.',
+    system: system_prompt,
     temperature: options.temperature || DEFAULT_OPTIONS.temperature,
     maxTokens: options.maxTokens || DEFAULT_OPTIONS.maxTokens,
     topP: options.topP || DEFAULT_OPTIONS.topP
   };
 
-  // Enable search tools if sources requested
-  if (options.maxSources > 0) {
-    aiOptions.tools = {
-      web_search: xai.tools.webSearch(),
-      x_search: xai.tools.xSearch()
-    };
-  }
+  // Always enable search tools so Grok can search online
+  aiOptions.tools = {
+    web_search: xai.tools.webSearch()
+  };
 
   return aiOptions;
 };
@@ -108,7 +156,8 @@ router.post('/chat', authenticate, async (req, res) => {
       res.setHeader('Connection', 'keep-alive');
 
       try {
-        const { fullStream } = streamText(aiOptions);
+        const streamResult = streamText(aiOptions);
+        const { fullStream } = streamResult;
         const sources = [];
         let fullText = '';
 
@@ -121,6 +170,16 @@ router.post('/chat', authenticate, async (req, res) => {
             sources.push({ url: part.url, title: part.url });
             res.write(`data: ${JSON.stringify({ type: 'source', url: part.url, title: part.url })}\n\n`);
           }
+        }
+
+        let usage = null;
+        try {
+          usage = await streamResult.usage;
+          if (usage) {
+            res.write(`data: ${JSON.stringify({ type: 'usage', usage })}\n\n`);
+          }
+        } catch(e) {
+          console.error('[Grok] Usage error:', e.message);
         }
 
         // Save conversation to database
@@ -156,7 +215,7 @@ router.post('/chat', authenticate, async (req, res) => {
         }
 
         res.write(`data: ${JSON.stringify({ type: 'done', message: fullText, sources })}\n\n`);
-        console.log(`[Grok] Completed: ${fullText.length} chars, ${sources.length} sources`);
+        console.log(`[Grok] Completed: ${fullText.length} chars, ${sources.length} sources, Usage:`, usage);
         res.end();
 
       } catch (error) {
@@ -167,11 +226,12 @@ router.post('/chat', authenticate, async (req, res) => {
 
     } else {
       const result = await generateText(aiOptions);
+      const usage = result.usage || null;
       const sources = result.response?.sources
         ?.filter(src => src.sourceType === 'url')
         .map(src => ({ url: src.url, title: src.url })) || [];
 
-      console.log(`[Grok] Response: ${result.text.length} chars, ${sources.length} sources`);
+      console.log(`[Grok] Response: ${result.text.length} chars, ${sources.length} sources, Usage:`, usage);
 
       // Save conversation to database
       const assistantMessage = { role: 'assistant', content: result.text };
@@ -212,7 +272,8 @@ router.post('/chat', authenticate, async (req, res) => {
         data: {
           message: result.text,
           sources: sources,
-          chatId: savedChatId
+          chatId: savedChatId,
+          usage: usage
         }
       });
     }
