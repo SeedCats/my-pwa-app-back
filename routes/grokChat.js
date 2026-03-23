@@ -8,9 +8,9 @@ require('dotenv').config();
 const router = express.Router();
 
 // Configuration constants
-const DEFAULT_MODEL = 'grok-4-fast';
+const DEFAULT_MODEL = 'grok-4-1-fast-non-reasoning';
 const DEFAULT_OPTIONS = {
-  temperature: 1.0,
+  temperature: 0.7,
   maxTokens: 3000,
   topP: 1.0
 };
@@ -53,6 +53,7 @@ const buildAiOptions = (messages, options) => {
   const aiOptions = {
     model: xai.responses(process.env.GROK_MODEL || DEFAULT_MODEL),
     messages,
+    system: options.systemPrompt || process.env.GROK_SYSTEM_PROMPT || 'You are a helpful AI assistant.',
     temperature: options.temperature || DEFAULT_OPTIONS.temperature,
     maxTokens: options.maxTokens || DEFAULT_OPTIONS.maxTokens,
     topP: options.topP || DEFAULT_OPTIONS.topP
