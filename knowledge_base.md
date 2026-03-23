@@ -1,4 +1,4 @@
-# Health & Wellness Knowledge Base for RAG (From World Health Organization (WHO) and American Heart Association (AHA))
+# Health & Wellness Knowledge Base for RAG
 
 ## 1. Body Mass Index (BMI)
 **Source:** World Health Organization (WHO)
@@ -47,3 +47,7 @@
 * Connect with others and talk about feelings.
 * Eat a healthy diet and exercise regularly.
 * Limit time following stressful news.
+
+**Source:**
+* https://www.who.int/ (WHO)
+* https://www.heart.org/ (AHA)
