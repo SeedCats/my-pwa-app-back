@@ -964,6 +964,7 @@ router.get('/users/:id', ...adminMiddleware, async (req, res) => {
                     name: user.name,
                     email: user.email,
                     role: user.role || 'user',
+                    ...(user.role === 'admin' ? { address: user.address || "" } : {}),
                     providerId: user.providerId ? user.providerId.toString() : null,
                     providerName: user.providerName || null,
                     createdAt: user.createdAt,
@@ -1059,13 +1060,13 @@ router.put('/user/:id', ...adminMiddleware, async (req, res) => {
     try {
         const db = await connectToDB();
         const id = req.params.id;
-        const { name, email, role, providerId } = req.body;
+        const { name, email, role, providerId, address } = req.body;
 
         if (!ObjectId.isValid(id)) {
             return res.status(400).json({ success: false, message: 'Invalid user ID' });
         }
-        if (!name && !email && !role && providerId === undefined) {
-            return res.status(400).json({ success: false, message: 'At least one field (name, email, role, providerId) is required to update' });
+        if (!name && !email && !role && providerId === undefined && address === undefined) {
+            return res.status(400).json({ success: false, message: 'At least one field (name, email, role, providerId, address) is required to update' });
         }
 
         const userId = new ObjectId(id);
@@ -1121,6 +1122,11 @@ router.put('/user/:id', ...adminMiddleware, async (req, res) => {
             }
         }
 
+        const isUpdatingToAdmin = role === 'admin' || (!role && existingUser.role === 'admin');
+        if (address !== undefined && isUpdatingToAdmin) {
+            updateData.address = address;
+        }
+
         const updateResult = await db.collection('user').updateOne({ _id: userId }, { $set: updateData });
 
         if (updateResult.modifiedCount === 1) {
@@ -1138,8 +1144,20 @@ router.put('/user/:id', ...adminMiddleware, async (req, res) => {
             }
 
             const updatedUser = await db.collection('user').findOne({ _id: userId }, { projection: { password: 0, token: 0 } });
+            
+            // Format response to include address if admin
+            const responseUser = {
+                id: updatedUser._id,
+                name: updatedUser.name,
+                email: updatedUser.email,
+                role: updatedUser.role,
+                ...(updatedUser.role === 'admin' ? { address: updatedUser.address || "" } : {}),
+                providerId: updatedUser.providerId || null,
+                providerName: updatedUser.providerName || null,
+                updatedAt: updatedUser.updatedAt
+            };
 
-            res.status(200).json({ success: true, message: 'User updated successfully', data: { user: updatedUser } });
+            res.status(200).json({ success: true, message: 'User updated successfully', data: { user: responseUser } });
         } else {
             res.status(500).json({ success: false, message: 'Failed to update user' });
         }

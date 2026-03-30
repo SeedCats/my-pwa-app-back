@@ -19,7 +19,7 @@ try {
 }
 
 // Configuration constants
-const DEFAULT_MODEL = 'grok-4-1-fast-non-reasoning';
+const DEFAULT_MODEL = process.env.GROK_DEFAULT_MODEL;
 const DEFAULT_OPTIONS = {
   temperature: 0.7,
   maxTokens: 3000,

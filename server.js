@@ -54,6 +54,7 @@ const adminChatRoutes = require('./routes/adminChat.js');
 const providerRoutes = require('./routes/emailSMTP.js');
 const bookingRoutes = require('./routes/booking.js');
 const bookingTimeSlotRoutes = require('./routes/bookingTimeSlot.js');
+const mapRoutes = require('./routes/map.js');
 
 // Root route - shows API is running
 app.get('/', (req, res) => {
@@ -87,6 +88,7 @@ app.use('/api/user-chat', userChatRoutes);
 app.use('/api/provider', providerRoutes);
 app.use('/api/booking', bookingRoutes);
 app.use('/api/bookingTimeSlot', bookingTimeSlotRoutes);
+app.use('/api/map', mapRoutes);
 
 // Initialize database connection and start server
 async function startServer() {
