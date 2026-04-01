@@ -1,6 +1,6 @@
 const express = require('express');
 const { connectToDB, ObjectId } = require('../config/db.js');
-const { generateToken, authenticate, removeToken, revokeAllUserTokens, checkRole } = require('../config/auth.js');
+const { generateToken, authenticate, removeToken, revokeAllUserTokens, checkRole, extractToken } = require('../config/auth.js');
 
 const router = express.Router();
 
@@ -383,6 +383,18 @@ router.put('/user/profile', authenticate, async (req, res) => {
             { $set: updateData }
         );
 
+        // If the user is an admin and the name was updated, update the providerName for all assigned users
+        if (req.user.role === 'admin' && name && (updateResult.modifiedCount === 1 || updateResult.matchedCount === 1)) {
+            try {
+                await db.collection("user").updateMany(
+                    { providerId: new ObjectId(req.user._id) },
+                    { $set: { providerName: name.trim(), updatedAt: new Date() } }
+                );
+            } catch (err) {
+                console.error('Error updating providerName for assigned users:', err);
+            }
+        }
+
         if (updateResult.modifiedCount === 1 || updateResult.matchedCount === 1) {
             // Get updated user data
             const updatedUser = await db.collection("user").findOne(
@@ -618,14 +630,18 @@ router.post('/login', async (req, res) => {
         });
 
         if (!user) {
-            return res.status(401).json({
+            // Use 200 to prevent red console errors but inform frontend it failed
+            return res.status(200).json({
                 success: false,
                 message: 'Login Failed, please check your credentials!'
             });
         }
 
+        // Determine token expiration based on "remember me" functionality
+        const expiresIn = Boolean(remember) ? 7 * 24 * 60 * 60 : 24 * 60 * 60; // 7 days or 1 day in seconds
+        
         // Generate token for the user (include role)
-        const token = await generateToken({ _id: user._id, email: user.email, role: user.role || 'user' });
+        const token = await generateToken({ _id: user._id, email: user.email, role: user.role || 'user' }, expiresIn);
 
         // Set HttpOnly cookie with appropriate expiration
         res.cookie('token', token, getCookieOptions(req, Boolean(remember)));
@@ -692,23 +708,46 @@ router.post('/logout', authenticate, async (req, res) => {
 });
 
 // GET /api/user/me - Returns current user from cookie
-router.get('/user/me', authenticate, async (req, res) => {
+const jwt = require('jsonwebtoken');
+const { generateUserSecret } = require('../config/auth.js');
+
+router.get('/user/me', async (req, res) => {
     try {
-        res.status(200).json({
-            success: true,
-            data: {
-                user: {
-                    id: req.user._id,
-                    name: req.user.name,
-                    email: req.user.email,
-                    role: req.user.role || 'user',
-                    icon: req.user.icon || "",
-                    ...(req.user.role === 'admin' ? { address: req.user.address || "" } : {}),
-                    providerId: req.user.providerId ? req.user.providerId.toString() : null,
-                    providerName: req.user.providerName || null
+        let token = extractToken(req);
+        if (!token) {
+            return res.status(200).json({ success: false, user: null, message: 'Not logged in' });
+        }
+
+        const db = await connectToDB();
+        const user = await db.collection("user").findOne({ token: token });
+        
+        if (!user) {
+            return res.status(200).json({ success: false, user: null, message: 'Invalid token' });
+        }
+
+        try {
+            const userSecret = generateUserSecret(user._id, user.email);
+            jwt.verify(token, userSecret);
+            
+            res.status(200).json({
+                success: true,
+                data: {
+                    user: {
+                        id: user._id,
+                        name: user.name,
+                        email: user.email,
+                        role: user.role || 'user',
+                        icon: user.icon || "",
+                        ...(user.role === 'admin' ? { address: user.address || "" } : {}),
+                        providerId: user.providerId ? user.providerId.toString() : null,
+                        providerName: user.providerName || null
+                    }
                 }
-            }
-        });
+            });
+        } catch (jwtErr) {
+            // Token invalid signature, basically expired or tampered
+            return res.status(200).json({ success: false, user: null, message: 'Token expired' });
+        }
     } catch (error) {
         console.error('Get user error:', error);
         res.status(500).json({

@@ -941,8 +941,8 @@ router.delete('/users/:userId/bmi/:bmiId', ...adminMiddleware, async (req, res) 
     }
 });
 
-// GET /api/admin/users/:id - Admin get user by ID (no password/token)
-router.get('/users/:id', ...adminMiddleware, async (req, res) => {
+// GET /api/admin/user/:id and /api/admin/users/:id - Admin get user by ID (no password/token)
+router.get(['/users/:id', '/user/:id'], ...adminMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
         if (!ObjectId.isValid(id)) {
@@ -964,6 +964,7 @@ router.get('/users/:id', ...adminMiddleware, async (req, res) => {
                     name: user.name,
                     email: user.email,
                     role: user.role || 'user',
+                    icon: user.icon || "",
                     ...(user.role === 'admin' ? { address: user.address || "" } : {}),
                     providerId: user.providerId ? user.providerId.toString() : null,
                     providerName: user.providerName || null,
@@ -1060,13 +1061,13 @@ router.put('/user/:id', ...adminMiddleware, async (req, res) => {
     try {
         const db = await connectToDB();
         const id = req.params.id;
-        const { name, email, role, providerId, address } = req.body;
+        const { name, email, role, providerId, address, icon } = req.body;
 
         if (!ObjectId.isValid(id)) {
             return res.status(400).json({ success: false, message: 'Invalid user ID' });
         }
-        if (!name && !email && !role && providerId === undefined && address === undefined) {
-            return res.status(400).json({ success: false, message: 'At least one field (name, email, role, providerId, address) is required to update' });
+        if (!name && !email && !role && providerId === undefined && address === undefined && icon === undefined) {
+            return res.status(400).json({ success: false, message: 'At least one field (name, email, role, providerId, address, icon) is required to update' });
         }
 
         const userId = new ObjectId(id);
@@ -1127,6 +1128,13 @@ router.put('/user/:id', ...adminMiddleware, async (req, res) => {
             updateData.address = address;
         }
 
+        if (icon !== undefined) {
+            if (icon !== "" && !icon.startsWith('data:image/')) {
+                return res.status(400).json({ success: false, message: 'Invalid image format. Must be a base64 encoded image.' });
+            }
+            updateData.icon = icon;
+        }
+
         const updateResult = await db.collection('user').updateOne({ _id: userId }, { $set: updateData });
 
         if (updateResult.modifiedCount === 1) {
@@ -1151,6 +1159,7 @@ router.put('/user/:id', ...adminMiddleware, async (req, res) => {
                 name: updatedUser.name,
                 email: updatedUser.email,
                 role: updatedUser.role,
+                icon: updatedUser.icon || "",
                 ...(updatedUser.role === 'admin' ? { address: updatedUser.address || "" } : {}),
                 providerId: updatedUser.providerId || null,
                 providerName: updatedUser.providerName || null,

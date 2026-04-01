@@ -12,7 +12,7 @@ const generateUserSecret = (userId, email) => {
     return crypto.createHash('sha256').update(userString).digest('hex');
 };
 
-const generateToken = async (user) => {
+const generateToken = async (user, expiresIn = 86400) => {
     // Remove sensitive data from the user object  
     delete user.password;
     delete user.token;
@@ -20,7 +20,7 @@ const generateToken = async (user) => {
     // Generate user-specific secret
     const userSecret = generateUserSecret(user._id, user.email);
     
-    const token = jwt.sign(user, userSecret, { expiresIn: 86400 });
+    const token = jwt.sign(user, userSecret, { expiresIn });
 
     const db = await connectToDB();
     try {
