@@ -3,8 +3,6 @@
 ## 1. Body Mass Index (BMI)
 **Source:** World Health Organization (WHO)
 
-**Definition:** BMI is a simple index of weight-for-height that is commonly used to classify underweight, overweight, and obesity in adults. It is defined as a person's weight in kilograms divided by the square of their height in meters ($kg/m^2$).
-
 **WHO BMI Classifications for Adults:**
 * **Underweight:** < 18.5
 * **Normal weight:** 18.5 – 24.9
