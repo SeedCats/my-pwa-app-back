@@ -7,35 +7,6 @@ const router = express.Router();
 // Validation constants
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 6;
-const COOKIE_MAX_AGE = {
-  REMEMBER: 7 * 24 * 60 * 60 * 1000,  // 7 days
-  DEFAULT: 24 * 60 * 60 * 1000         // 1 day
-};
-
-const getCookieOptions = (req, remember = false) => {
-    const isProduction = process.env.NODE_ENV === 'production';
-    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
-    const useSecureCookie = isProduction || isHttps;
-
-    return {
-        httpOnly: true,
-        secure: useSecureCookie,
-        sameSite: useSecureCookie ? 'none' : 'lax',
-        maxAge: remember ? COOKIE_MAX_AGE.REMEMBER : COOKIE_MAX_AGE.DEFAULT
-    };
-};
-
-const getClearCookieOptions = (req) => {
-    const isProduction = process.env.NODE_ENV === 'production';
-    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
-    const useSecureCookie = isProduction || isHttps;
-
-    return {
-        httpOnly: true,
-        secure: useSecureCookie,
-        sameSite: useSecureCookie ? 'none' : 'lax'
-    };
-};
 
 // Validation helpers
 const validateEmail = (email) => EMAIL_REGEX.test(email);
@@ -116,9 +87,6 @@ router.post('/user/register', async (req, res) => {
         if (result.insertedId) {
             // Generate token for the user after registration (include role)
             const token = await generateToken({ _id: result.insertedId, email: email, role: newUser.role });
-
-            // Set HttpOnly cookie (same as login)
-            res.cookie('token', token, getCookieOptions(req));
 
             // If an admin provider was assigned, add this user's id to that admin's UserList
             if (assignedProviderId) {
@@ -582,9 +550,6 @@ router.put('/user/password', authenticate, async (req, res) => {
         );
 
         if (updateResult.modifiedCount === 1) {
-            // Clear the HttpOnly cookie
-            res.clearCookie('token', getClearCookieOptions(req));
-
             res.status(200).json({
                 success: true,
                 message: 'Password updated successfully. Please login again.',
@@ -643,9 +608,6 @@ router.post('/login', async (req, res) => {
         // Generate token for the user (include role)
         const token = await generateToken({ _id: user._id, email: user.email, role: user.role || 'user' }, expiresIn);
 
-        // Set HttpOnly cookie with appropriate expiration
-        res.cookie('token', token, getCookieOptions(req, Boolean(remember)));
-
         res.status(200).json({
             success: true,
             data: {
@@ -673,9 +635,8 @@ router.post('/login', async (req, res) => {
 // POST /api/logout - Log out and remove token
 router.post('/logout', authenticate, async (req, res) => {
     try {
-        // Extract token from cookie or header
-        const token = req.cookies.token ||
-            (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')
+        // Extract token from header
+        const token = (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')
                 ? req.headers.authorization.split(' ')[1]
                 : null);
 
@@ -688,9 +649,6 @@ router.post('/logout', authenticate, async (req, res) => {
 
         // Remove token from database
         await removeToken(token);
-
-        // Clear the HttpOnly cookie
-        res.clearCookie('token', getClearCookieOptions(req));
 
         res.status(200).json({
             success: true,

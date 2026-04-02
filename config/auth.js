@@ -38,12 +38,7 @@ const generateToken = async (user, expiresIn = 86400) => {
 };
 
 const extractToken = (req) => {
-    // First, check for token in HttpOnly cookie
-    if (req.cookies && req.cookies.token) {
-        return req.cookies.token;
-    }
-    
-    // Fallback to Authorization header (for backwards compatibility)
+    // Check for Authorization header
     const authHeader = req.headers.authorization || req.headers.Authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         return authHeader.split(' ')[1];
